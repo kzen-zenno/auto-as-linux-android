@@ -1,0 +1,1388 @@
+diff --git a/host/commands/vhal_proxy_server/Android.bp b/host/commands/vhal_proxy_server/Android.bp
+index 6716dda27..5069f2525 100644
+--- a/host/commands/vhal_proxy_server/Android.bp
++++ b/host/commands/vhal_proxy_server/Android.bp
+@@ -13,6 +13,47 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
++
++// Generated C++ stubs of the KUKSA Databroker kuksa.val.v1 API, used by
++// kuksa/KuksaVehicleHardware.cpp.
++genrule {
++    name: "KuksaValProtoStub_h",
++    tools: [
++        "aprotoc",
++        "protoc-gen-grpc-cpp-plugin",
++    ],
++    cmd: "$(location aprotoc) -Idevice/google/cuttlefish/host/commands/vhal_proxy_server/kuksa/proto -Iexternal/protobuf/src --plugin=protoc-gen-grpc=$(location protoc-gen-grpc-cpp-plugin) $(location kuksa/proto/kuksa/val/v1/val.proto) $(location kuksa/proto/kuksa/val/v1/types.proto) --grpc_out=$(genDir) --cpp_out=$(genDir)",
++    srcs: [
++        "kuksa/proto/kuksa/val/v1/val.proto",
++        "kuksa/proto/kuksa/val/v1/types.proto",
++        ":libprotobuf-internal-protos",
++    ],
++    out: [
++        "kuksa/val/v1/val.pb.h",
++        "kuksa/val/v1/val.grpc.pb.h",
++        "kuksa/val/v1/types.pb.h",
++    ],
++}
++
++genrule {
++    name: "KuksaValProtoStub_cc",
++    tools: [
++        "aprotoc",
++        "protoc-gen-grpc-cpp-plugin",
++    ],
++    cmd: "$(location aprotoc) -Idevice/google/cuttlefish/host/commands/vhal_proxy_server/kuksa/proto -Iexternal/protobuf/src --plugin=protoc-gen-grpc=$(location protoc-gen-grpc-cpp-plugin) $(location kuksa/proto/kuksa/val/v1/val.proto) $(location kuksa/proto/kuksa/val/v1/types.proto) --grpc_out=$(genDir) --cpp_out=$(genDir)",
++    srcs: [
++        "kuksa/proto/kuksa/val/v1/val.proto",
++        "kuksa/proto/kuksa/val/v1/types.proto",
++        ":libprotobuf-internal-protos",
++    ],
++    out: [
++        "kuksa/val/v1/val.pb.cc",
++        "kuksa/val/v1/val.grpc.pb.cc",
++        "kuksa/val/v1/types.pb.cc",
++    ],
++}
++
+ cc_binary_host {
+     name: "vhal_proxy_server",
+     defaults: [
+@@ -22,7 +63,13 @@ cc_binary_host {
+     ],
+     srcs: [
+         "vhal_proxy_server.cpp",
++        "kuksa/KuksaMapping.cpp",
++        "kuksa/KuksaVehicleHardware.cpp",
+     ],
++    generated_headers: ["KuksaValProtoStub_h"],
++    generated_sources: ["KuksaValProtoStub_cc"],
++    local_include_dirs: ["kuksa"],
++    include_dirs: ["external/protobuf/src"],
+     required: [
+         "Host_Prebuilt_VehicleHalDefaultProperties_JSON",
+         "Host_Prebuilt_VehicleHalTestProperties_JSON",
+diff --git a/host/commands/vhal_proxy_server/kuksa/KuksaMapping.cpp b/host/commands/vhal_proxy_server/kuksa/KuksaMapping.cpp
+new file mode 100644
+index 000000000..4deabd1e4
+--- /dev/null
++++ b/host/commands/vhal_proxy_server/kuksa/KuksaMapping.cpp
+@@ -0,0 +1,175 @@
++#include "KuksaMapping.h"
++
++#include <algorithm>
++#include <cmath>
++
++namespace cuttlefish::kuksa_vhal {
++namespace {
++
++// VehicleGear
++constexpr int32_t kGearNeutral = 0x0001;
++constexpr int32_t kGearReverse = 0x0002;
++constexpr int32_t kGearPark = 0x0004;
++constexpr int32_t kGearDrive = 0x0008;
++constexpr int32_t kGear1 = 0x0010;
++
++// VehicleHvacFanDirection
++constexpr int32_t kFanFace = 0x1;
++constexpr int32_t kFanFloor = 0x2;
++constexpr int32_t kFanFaceAndFloor = 0x3;
++
++// VehicleAirbagLocation::FRONT
++constexpr int32_t kAirbagFront = 0x02;
++
++bool isNumber(const KuksaValue& v) { return !v.isBool && !v.isString; }
++
++VhalValue vInt(int32_t prop, int32_t area, int32_t value) {
++    return VhalValue{prop, area, {value}, {}};
++}
++VhalValue vFloat(int32_t prop, int32_t area, float value) {
++    return VhalValue{prop, area, {}, {value}};
++}
++
++}  // namespace
++
++const std::vector<Binding>& bindings() {
++    static const std::vector<Binding> kBindings = {
++        {"Vehicle.Speed", Conv::kSpeed, false},
++        {"Vehicle.Powertrain.CombustionEngine.Speed", Conv::kEngineRpm, false},
++        {"Vehicle.Chassis.ParkingBrake.IsEngaged", Conv::kParkingBrake, false},
++        {"Vehicle.Cabin.HVAC.IsAirConditioningActive", Conv::kAcOn, true},
++        {"Vehicle.Cabin.HVAC.Station.Row1.Driver.Temperature", Conv::kTemperature, true},
++        {"Vehicle.Cabin.HVAC.Station.Row1.Driver.FanSpeed", Conv::kFanSpeed, true},
++        {"Vehicle.Cabin.HVAC.Station.Row1.Driver.AirDistribution", Conv::kAirDistribution, true},
++        {"Vehicle.Cabin.HVAC.Station.Row1.Driver.IsDefrosting", Conv::kDefrost, true},
++        {"Vehicle.Cabin.Seat.Row1.DriverSide.IsBelted", Conv::kSeatBelt, false},
++        {"Vehicle.Cabin.Door.Row1.DriverSide.IsOpen", Conv::kDoorOpen, false},
++        {"Vehicle.Cabin.Seat.Row1.DriverSide.Airbag.IsDeployed", Conv::kAirbag, false},
++        {"Vehicle.Powertrain.FuelSystem.RelativeLevel", Conv::kFuel, false},
++        {"Vehicle.Powertrain.Transmission.CurrentGear", Conv::kGear, false},
++    };
++    return kBindings;
++}
++
++std::optional<std::vector<VhalValue>> toVhal(Conv conv, const KuksaValue& v) {
++    switch (conv) {
++        case Conv::kSpeed:
++            if (!isNumber(v) || v.d < 0.0 || v.d > 255.0) return std::nullopt;
++            // km/h -> m/s
++            return std::vector<VhalValue>{
++                vFloat(kPerfVehicleSpeed, kAreaGlobal, static_cast<float>(v.d / 3.6))};
++        case Conv::kEngineRpm:
++            if (!isNumber(v) || v.d < 0.0 || v.d > 8000.0) return std::nullopt;
++            return std::vector<VhalValue>{
++                vFloat(kEngineRpm, kAreaGlobal, static_cast<float>(v.d))};
++        case Conv::kParkingBrake:
++            if (!v.isBool) return std::nullopt;
++            return std::vector<VhalValue>{vInt(kParkingBrakeOn, kAreaGlobal, v.b ? 1 : 0)};
++        case Conv::kAcOn:
++            if (!v.isBool) return std::nullopt;
++            return std::vector<VhalValue>{vInt(kHvacAcOn, kAreaSeatRow1Left, v.b ? 1 : 0)};
++        case Conv::kTemperature:
++            if (!isNumber(v) || v.d < kTempMin || v.d > kTempMax) return std::nullopt;
++            return std::vector<VhalValue>{
++                vFloat(kHvacTemperatureSet, kAreaSeatRow1Left, static_cast<float>(v.d))};
++        case Conv::kFanSpeed: {
++            if (!isNumber(v) || v.d < 0.0 || v.d > 100.0) return std::nullopt;
++            int level = static_cast<int>(std::lround(v.d * kFanMaxLevel / 100.0));
++            return std::vector<VhalValue>{vInt(kHvacFanSpeed, kAreaSeatRow1Left, level)};
++        }
++        case Conv::kAirDistribution: {
++            if (!v.isString) return std::nullopt;
++            int32_t dir;
++            if (v.s == "UP") dir = kFanFace;
++            else if (v.s == "DOWN") dir = kFanFloor;
++            else if (v.s == "MIDDLE") dir = kFanFaceAndFloor;
++            else return std::nullopt;
++            return std::vector<VhalValue>{vInt(kHvacFanDirection, kAreaSeatRow1Left, dir)};
++        }
++        case Conv::kDefrost:
++            if (!v.isBool) return std::nullopt;
++            return std::vector<VhalValue>{
++                vInt(kHvacDefroster, kAreaWindowFrontWindshield, v.b ? 1 : 0)};
++        case Conv::kSeatBelt:
++            if (!v.isBool) return std::nullopt;
++            return std::vector<VhalValue>{vInt(kSeatBeltBuckled, kAreaSeatRow1Left, v.b ? 1 : 0)};
++        case Conv::kDoorOpen:
++            if (!v.isBool) return std::nullopt;
++            return std::vector<VhalValue>{vInt(kDoorPos, kAreaDoorRow1Left, v.b ? 1 : 0)};
++        case Conv::kAirbag:
++            if (!v.isBool) return std::nullopt;
++            return std::vector<VhalValue>{
++                vInt(kSeatAirbagsDeployed, kAreaSeatRow1Left, v.b ? kAirbagFront : 0)};
++        case Conv::kFuel: {
++            if (!isNumber(v) || v.d < 0.0 || v.d > 100.0) return std::nullopt;
++            // FUEL_LEVEL_LOW threshold is 0% (Planing.md section 7).
++            return std::vector<VhalValue>{
++                vFloat(kFuelLevel, kAreaGlobal, static_cast<float>(v.d / 100.0 * kFuelCapacityMl)),
++                vInt(kFuelLevelLow, kAreaGlobal, v.d <= 0.0 ? 1 : 0)};
++        }
++        case Conv::kGear: {
++            if (!isNumber(v)) return std::nullopt;
++            int g = static_cast<int>(std::lround(v.d));
++            int32_t gear;
++            if (g == -1) gear = kGearReverse;
++            else if (g == 0) gear = kGearNeutral;
++            else if (g >= 1 && g <= 6) gear = kGear1 << (g - 1);
++            else if (g == 126) gear = kGearPark;
++            else if (g == 127) gear = kGearDrive;
++            else return std::nullopt;
++            return std::vector<VhalValue>{vInt(kGearSelection, kAreaGlobal, gear),
++                                          vInt(kCurrentGear, kAreaGlobal, gear)};
++        }
++    }
++    return std::nullopt;
++}
++
++std::optional<KuksaValue> toKuksa(Conv conv, const VhalValue& v) {
++    KuksaValue out;
++    auto asBool = [&]() -> std::optional<KuksaValue> {
++        if (v.ints.size() != 1) return std::nullopt;
++        out.isBool = true;
++        out.b = v.ints[0] != 0;
++        return out;
++    };
++    switch (conv) {
++        case Conv::kAcOn:
++        case Conv::kDefrost:
++            return asBool();
++        case Conv::kTemperature:
++            if (v.floats.size() != 1) return std::nullopt;
++            out.d = std::clamp(v.floats[0], kTempMin, kTempMax);
++            return out;
++        case Conv::kFanSpeed: {
++            if (v.ints.size() != 1) return std::nullopt;
++            int level = std::clamp(v.ints[0], 0, kFanMaxLevel);
++            // level -> percent, round(level * 100 / 7) (SYS-003 section 7.1).
++            out.d = std::lround(level * 100.0 / kFanMaxLevel);
++            return out;
++        }
++        case Conv::kAirDistribution: {
++            if (v.ints.size() != 1) return std::nullopt;
++            out.isString = true;
++            if (v.ints[0] == kFanFace) out.s = "UP";
++            else if (v.ints[0] == kFanFloor) out.s = "DOWN";
++            else if (v.ints[0] == kFanFaceAndFloor) out.s = "MIDDLE";
++            else return std::nullopt;
++            return out;
++        }
++        default:
++            return std::nullopt;
++    }
++}
++
++std::optional<PropArea> stateProp(Conv conv) {
++    switch (conv) {
++        case Conv::kAcOn: return PropArea{kHvacAcOn, kAreaSeatRow1Left};
++        case Conv::kTemperature: return PropArea{kHvacTemperatureSet, kAreaSeatRow1Left};
++        case Conv::kFanSpeed: return PropArea{kHvacFanSpeed, kAreaSeatRow1Left};
++        case Conv::kAirDistribution: return PropArea{kHvacFanDirection, kAreaSeatRow1Left};
++        case Conv::kDefrost: return PropArea{kHvacDefroster, kAreaWindowFrontWindshield};
++        default: return std::nullopt;
++    }
++}
++
++}  // namespace cuttlefish::kuksa_vhal
+diff --git a/host/commands/vhal_proxy_server/kuksa/KuksaMapping.h b/host/commands/vhal_proxy_server/kuksa/KuksaMapping.h
+new file mode 100644
+index 000000000..8c28513b5
+--- /dev/null
++++ b/host/commands/vhal_proxy_server/kuksa/KuksaMapping.h
+@@ -0,0 +1,113 @@
++// VSS (KUKSA Databroker) <-> VHAL property mapping.
++//
++// Pure functions, no AOSP dependency, so they can be unit-tested with a plain
++// host compiler. See docs/Planing.md section 4 (mapping table) of the
++// auto-as-linux-andorid repository.
++#pragma once
++
++#include <cstdint>
++#include <optional>
++#include <string>
++#include <vector>
++
++namespace cuttlefish::kuksa_vhal {
++
++// VHAL property IDs (VehicleProperty.aidl). Verified against the AIDL enum by
++// static_asserts in KuksaVehicleHardware.cpp.
++constexpr int32_t kPerfVehicleSpeed = 0x11600207;
++constexpr int32_t kEngineRpm = 0x11600305;
++constexpr int32_t kParkingBrakeOn = 0x11200402;
++constexpr int32_t kHvacAcOn = 0x15200505;
++constexpr int32_t kHvacTemperatureSet = 0x15600503;
++constexpr int32_t kHvacFanSpeed = 0x15400500;
++constexpr int32_t kHvacFanDirection = 0x15400501;
++constexpr int32_t kHvacDefroster = 0x13200504;
++constexpr int32_t kSeatBeltBuckled = 0x15200b82;
++constexpr int32_t kDoorPos = 0x16400b00;
++constexpr int32_t kSeatAirbagsDeployed = 0x15400ba5;
++constexpr int32_t kFuelLevel = 0x11600307;
++constexpr int32_t kFuelLevelLow = 0x11200405;
++constexpr int32_t kGearSelection = 0x11400400;
++constexpr int32_t kCurrentGear = 0x11400401;
++
++// HVAC_TEMPERATURE_DISPLAY_UNITS and its value VehicleUnit::CELSIUS. The fake
++// VHAL defaults to FAHRENHEIT, while SYS-003 temperatures are degC.
++constexpr int32_t kHvacTemperatureDisplayUnits = 0x1140050e;
++constexpr int32_t kUnitCelsius = 0x30;
++
++// Area IDs. The driver is on the left (Planing.md section 7).
++constexpr int32_t kAreaGlobal = 0;
++constexpr int32_t kAreaSeatRow1Left = 0x0001;
++constexpr int32_t kAreaDoorRow1Left = 0x0001;
++constexpr int32_t kAreaWindowFrontWindshield = 0x0001;
++
++// Fixed fuel tank capacity in mL, same as INFO_FUEL_CAPACITY of the fake
++// VHAL default config.
++constexpr float kFuelCapacityMl = 15000.0f;
++
++// SOME/IP Fan has levels 0..7 (SYS-003 section 7.1).
++constexpr int kFanMaxLevel = 7;
++
++// Writable range of Row1.Driver.Temperature (SYS-003 section 3).
++constexpr float kTempMin = 16.0f;
++constexpr float kTempMax = 30.0f;
++
++enum class Conv {
++    kSpeed,
++    kEngineRpm,
++    kParkingBrake,
++    kAcOn,
++    kTemperature,
++    kFanSpeed,
++    kAirDistribution,
++    kDefrost,
++    kSeatBelt,
++    kDoorOpen,
++    kAirbag,
++    kFuel,
++    kGear,
++};
++
++struct Binding {
++    const char* path;
++    Conv conv;
++    bool writable;  // VSS actuator that can be set from VHAL.
++};
++
++// All VSS paths connected to VHAL. ESC/ABS IsError are intentionally absent.
++const std::vector<Binding>& bindings();
++
++// A value as received from / sent to KUKSA.
++struct KuksaValue {
++    bool isBool = false;
++    bool isString = false;
++    bool b = false;
++    double d = 0.0;
++    std::string s;
++};
++
++// One VHAL property value (single area).
++struct VhalValue {
++    int32_t prop = 0;
++    int32_t area = 0;
++    std::vector<int32_t> ints;
++    std::vector<float> floats;
++};
++
++// KUKSA -> VHAL. A VSS value can feed several VHAL properties (Fuel, Gear).
++// Returns nullopt for out-of-range / wrong-type values (treated as invalid).
++std::optional<std::vector<VhalValue>> toVhal(Conv conv, const KuksaValue& v);
++
++// VHAL -> KUKSA for writable bindings. Returns nullopt when the VHAL value
++// has no valid VSS representation (e.g. DEFROST bit in fan direction).
++std::optional<KuksaValue> toKuksa(Conv conv, const VhalValue& v);
++
++// The VHAL (prop, area) that carries the state of a writable binding, used to
++// match a write request with its binding.
++struct PropArea {
++    int32_t prop;
++    int32_t area;
++};
++std::optional<PropArea> stateProp(Conv conv);
++
++}  // namespace cuttlefish::kuksa_vhal
+diff --git a/host/commands/vhal_proxy_server/kuksa/KuksaVehicleHardware.cpp b/host/commands/vhal_proxy_server/kuksa/KuksaVehicleHardware.cpp
+new file mode 100644
+index 000000000..a8a1ff6c9
+--- /dev/null
++++ b/host/commands/vhal_proxy_server/kuksa/KuksaVehicleHardware.cpp
+@@ -0,0 +1,395 @@
++#include "KuksaVehicleHardware.h"
++
++#include <VehicleUtils.h>
++#include <android-base/logging.h>
++#include <android-base/stringprintf.h>
++
++#include <algorithm>
++#include <cmath>
++#include <set>
++
++
++namespace cuttlefish::kuksa_vhal {
++namespace {
++
++using ::kuksa::val::v1::Datapoint;
++using ::kuksa::val::v1::Field;
++
++constexpr auto kSetTimeout = std::chrono::seconds(2);
++// How long VHAL waits for the state to come back after a write.
++constexpr auto kApplyTimeout = std::chrono::seconds(3);
++constexpr auto kReconnectDelay = std::chrono::seconds(1);
++
++const Binding* findByPath(const std::string& path) {
++    for (const auto& b : bindings()) {
++        if (path == b.path) return &b;
++    }
++    return nullptr;
++}
++
++KuksaValue fromDatapoint(const Datapoint& dp) {
++    KuksaValue v;
++    switch (dp.value_case()) {
++        case Datapoint::kBool: v.isBool = true; v.b = dp.bool_(); break;
++        case Datapoint::kString: v.isString = true; v.s = dp.string(); break;
++        case Datapoint::kInt32: v.d = dp.int32(); break;
++        case Datapoint::kInt64: v.d = static_cast<double>(dp.int64()); break;
++        case Datapoint::kUint32: v.d = dp.uint32(); break;
++        case Datapoint::kUint64: v.d = static_cast<double>(dp.uint64()); break;
++        case Datapoint::kFloat: v.d = dp.float_(); break;
++        case Datapoint::kDouble: v.d = dp.double_(); break;
++        default: v.isString = true; v.s = "<unsupported>"; break;
++    }
++    return v;
++}
++
++// Datapoint with the exact wire type of the VSS leaf.
++Datapoint toDatapoint(Conv conv, const KuksaValue& v) {
++    Datapoint dp;
++    switch (conv) {
++        case Conv::kAcOn:
++        case Conv::kDefrost: dp.set_bool_(v.b); break;
++        case Conv::kTemperature: dp.set_float_(static_cast<float>(v.d)); break;
++        case Conv::kFanSpeed: dp.set_uint32(static_cast<uint32_t>(v.d)); break;
++        case Conv::kAirDistribution: dp.set_string(v.s); break;
++        default: break;
++    }
++    return dp;
++}
++
++bool sameValue(const VhalValue& a, const VhalValue& b) {
++    if (a.ints != b.ints || a.floats.size() != b.floats.size()) return false;
++    for (size_t i = 0; i < a.floats.size(); ++i) {
++        if (std::fabs(a.floats[i] - b.floats[i]) > 1e-3f) return false;
++    }
++    return true;
++}
++
++}  // namespace
++
++// The numeric constants in KuksaMapping.h must match the AIDL enums.
++#define VHAL_ID_CHECK(name, aidlName) \
++    static_assert(name == static_cast<int32_t>(aidlvhal::VehicleProperty::aidlName), #name)
++VHAL_ID_CHECK(kPerfVehicleSpeed, PERF_VEHICLE_SPEED);
++VHAL_ID_CHECK(kEngineRpm, ENGINE_RPM);
++VHAL_ID_CHECK(kParkingBrakeOn, PARKING_BRAKE_ON);
++VHAL_ID_CHECK(kHvacAcOn, HVAC_AC_ON);
++VHAL_ID_CHECK(kHvacTemperatureSet, HVAC_TEMPERATURE_SET);
++VHAL_ID_CHECK(kHvacFanSpeed, HVAC_FAN_SPEED);
++VHAL_ID_CHECK(kHvacFanDirection, HVAC_FAN_DIRECTION);
++VHAL_ID_CHECK(kHvacDefroster, HVAC_DEFROSTER);
++VHAL_ID_CHECK(kSeatBeltBuckled, SEAT_BELT_BUCKLED);
++VHAL_ID_CHECK(kDoorPos, DOOR_POS);
++VHAL_ID_CHECK(kSeatAirbagsDeployed, SEAT_AIRBAGS_DEPLOYED);
++VHAL_ID_CHECK(kFuelLevel, FUEL_LEVEL);
++VHAL_ID_CHECK(kFuelLevelLow, FUEL_LEVEL_LOW);
++VHAL_ID_CHECK(kGearSelection, GEAR_SELECTION);
++VHAL_ID_CHECK(kHvacTemperatureDisplayUnits, HVAC_TEMPERATURE_DISPLAY_UNITS);
++static_assert(kUnitCelsius == static_cast<int32_t>(aidlvhal::VehicleUnit::CELSIUS));
++VHAL_ID_CHECK(kCurrentGear, CURRENT_GEAR);
++static_assert(kAreaSeatRow1Left == static_cast<int32_t>(aidlvhal::VehicleAreaSeat::ROW_1_LEFT));
++static_assert(kAreaDoorRow1Left == static_cast<int32_t>(aidlvhal::VehicleAreaDoor::ROW_1_LEFT));
++static_assert(kAreaWindowFrontWindshield ==
++              static_cast<int32_t>(aidlvhal::VehicleAreaWindow::FRONT_WINDSHIELD));
++
++KuksaVehicleHardware::KuksaVehicleHardware(std::string configDir, std::string kuksaAddr,
++                                           int32_t s2rS2dConfig)
++    : fake::FakeVehicleHardware(std::move(configDir), "", false, s2rS2dConfig),
++      mKuksaAddr(std::move(kuksaAddr)) {
++    // Temperatures from KUKSA are in degC (SYS-003): show them as such.
++    applyToStore(VhalValue{kHvacTemperatureDisplayUnits, kAreaGlobal, {kUnitCelsius}, {}});
++    mChannel = ::grpc::CreateChannel(mKuksaAddr, ::grpc::InsecureChannelCredentials());
++    mStub = ::kuksa::val::v1::VAL::NewStub(mChannel);
++    mSubscribeThread = std::thread([this] { subscribeLoop(); });
++    mPendingThread = std::thread([this] { pendingLoop(); });
++    LOG(INFO) << "KuksaVehicleHardware: Databroker at " << mKuksaAddr;
++}
++
++KuksaVehicleHardware::~KuksaVehicleHardware() {
++    mStop = true;
++    {
++        std::lock_guard lck(mCtxMutex);
++        if (mStreamCtx) mStreamCtx->TryCancel();
++    }
++    mPendingCv.notify_all();
++    if (mSubscribeThread.joinable()) mSubscribeThread.join();
++    if (mPendingThread.joinable()) mPendingThread.join();
++}
++
++void KuksaVehicleHardware::subscribeLoop() {
++    while (!mStop) {
++        bool ok = subscribeOnce();
++        mConnected = false;
++        if (mStop) break;
++        LOG(WARNING) << "KuksaVehicleHardware: subscription ended (" << (ok ? "stream" : "connect")
++                     << "), retrying in 1s";
++        for (int i = 0; i < 10 && !mStop; ++i) {
++            std::this_thread::sleep_for(kReconnectDelay / 10);
++        }
++    }
++}
++
++// Returns true if a stream was established (and later ended).
++bool KuksaVehicleHardware::subscribeOnce() {
++    // 1) Keep only the paths that exist in this Databroker. An unknown path
++    //    would fail the whole Subscribe call.
++    ::kuksa::val::v1::GetRequest getReq;
++    for (const auto& b : bindings()) {
++        auto* e = getReq.add_entries();
++        e->set_path(b.path);
++        e->set_view(::kuksa::val::v1::VIEW_CURRENT_VALUE);
++        e->add_fields(Field::FIELD_PATH);
++    }
++    ::kuksa::val::v1::GetResponse getResp;
++    {
++        ::grpc::ClientContext ctx;
++        ctx.set_deadline(std::chrono::system_clock::now() + std::chrono::seconds(3));
++        auto st = mStub->Get(&ctx, getReq, &getResp);
++        if (!st.ok()) {
++            LOG(WARNING) << "KuksaVehicleHardware: Get failed: " << st.error_message();
++            return false;
++        }
++    }
++    std::set<std::string> missing;
++    for (const auto& err : getResp.errors()) missing.insert(err.path());
++
++    ::kuksa::val::v1::SubscribeRequest req;
++    for (const auto& b : bindings()) {
++        if (missing.count(b.path)) {
++            LOG(WARNING) << "KuksaVehicleHardware: " << b.path << " not in Databroker, skipped";
++            continue;
++        }
++        auto* e = req.add_entries();
++        e->set_path(b.path);
++        e->set_view(::kuksa::val::v1::VIEW_CURRENT_VALUE);
++        e->add_fields(Field::FIELD_VALUE);
++    }
++
++    // 2) Subscribe. Databroker sends the current values first, then changes.
++    ::grpc::ClientContext ctx;
++    {
++        std::lock_guard lck(mCtxMutex);
++        if (mStop) return false;
++        mStreamCtx = &ctx;
++    }
++    auto reader = mStub->Subscribe(&ctx, req);
++    mConnected = true;
++    LOG(INFO) << "KuksaVehicleHardware: subscribed to " << req.entries_size() << " paths";
++    ::kuksa::val::v1::SubscribeResponse resp;
++    while (reader->Read(&resp)) {
++        for (const auto& u : resp.updates()) {
++            if (u.entry().has_value()) onKuksaUpdate(u.entry().path(), u.entry().value());
++        }
++    }
++    {
++        std::lock_guard lck(mCtxMutex);
++        mStreamCtx = nullptr;
++    }
++    return true;
++}
++
++void KuksaVehicleHardware::onKuksaUpdate(const std::string& path, const Datapoint& dp) {
++    const Binding* b = findByPath(path);
++    if (!b) return;
++    auto values = toVhal(b->conv, fromDatapoint(dp));
++    if (!values) {
++        // Invalid / out-of-range: keep the last valid value (SYS-003 section 7.1).
++        ++mRejectedCount;
++        LOG(WARNING) << "KuksaVehicleHardware: rejected value for " << path;
++        return;
++    }
++    ++mUpdateCount;
++    for (const auto& v : *values) applyToStore(v);
++
++    // The pending write (if any) completes once the state shows the target.
++    // A state update with a different value leaves it pending; it is then
++    // reported as an error after the timeout.
++    if (b->writable) {
++        if (auto pa = stateProp(b->conv)) {
++            std::lock_guard lck(mPendingMutex);
++            auto it = mPending.find({pa->prop, pa->area});
++            if (it != mPending.end()) {
++                for (const auto& v : *values) {
++                    if (v.prop == pa->prop && v.area == pa->area &&
++                        sameValue(v, it->second.requested)) {
++                        mPending.erase(it);
++                        break;
++                    }
++                }
++            }
++        }
++    }
++}
++
++void KuksaVehicleHardware::applyToStore(const VhalValue& v) {
++    auto prop = mValuePool->obtain(
++            static_cast<aidlvhal::VehiclePropertyType>(v.prop &
++                                                       static_cast<int32_t>(
++                                                               aidlvhal::VehiclePropertyType::MASK)));
++    prop->prop = v.prop;
++    prop->areaId = v.area;
++    prop->value.int32Values = v.ints;
++    prop->value.floatValues = v.floats;
++    // updateStatus=true: a valid KUKSA value makes the property AVAILABLE.
++    auto result = mServerSidePropStore->writeValue(
++            std::move(prop), /*updateStatus=*/true,
++            android::hardware::automotive::vehicle::VehiclePropertyStore::EventMode::ON_VALUE_CHANGE,
++            /*useCurrentTimestamp=*/true);
++    if (!result.ok()) {
++        LOG(WARNING) << "KuksaVehicleHardware: store rejected prop " << v.prop << " area "
++                     << v.area << ": " << result.error().message();
++    }
++}
++
++bool KuksaVehicleHardware::sameAsStored(const VhalValue& v) const {
++    aidlvhal::VehiclePropValue key;
++    key.prop = v.prop;
++    key.areaId = v.area;
++    auto stored = mServerSidePropStore->readValue(key);
++    if (!stored.ok()) return false;
++    VhalValue cur{v.prop, v.area, (*stored)->value.int32Values, (*stored)->value.floatValues};
++    return sameValue(cur, v);
++}
++
++bool KuksaVehicleHardware::sendTarget(const std::string& path, Conv conv, const KuksaValue& value) {
++    ::kuksa::val::v1::SetRequest req;
++    auto* upd = req.add_updates();
++    upd->mutable_entry()->set_path(path);
++    *upd->mutable_entry()->mutable_actuator_target() = toDatapoint(conv, value);
++    upd->add_fields(Field::FIELD_ACTUATOR_TARGET);
++    ::kuksa::val::v1::SetResponse resp;
++    ::grpc::ClientContext ctx;
++    ctx.set_deadline(std::chrono::system_clock::now() + kSetTimeout);
++    auto st = mStub->Set(&ctx, req, &resp);
++    if (!st.ok() || resp.has_error() || resp.errors_size() > 0) {
++        LOG(WARNING) << "KuksaVehicleHardware: Set " << path
++                     << " failed: " << (st.ok() ? resp.ShortDebugString() : st.error_message());
++        return false;
++    }
++    return true;
++}
++
++aidlvhal::StatusCode KuksaVehicleHardware::setValues(
++        std::shared_ptr<const SetValuesCallback> callback,
++        const std::vector<aidlvhal::SetValueRequest>& requests) {
++    std::vector<aidlvhal::SetValueRequest> passThrough;
++    std::vector<aidlvhal::SetValueResult> results;
++
++    for (const auto& req : requests) {
++        const Binding* bound = nullptr;
++        for (const auto& b : bindings()) {
++            auto pa = stateProp(b.conv);
++            if (pa && pa->prop == req.value.prop && pa->area == req.value.areaId) {
++                bound = &b;
++                break;
++            }
++        }
++        if (!bound) {
++            // Not an HVAC point bound to KUKSA: the fake VHAL handles it.
++            passThrough.push_back(req);
++            continue;
++        }
++
++        aidlvhal::SetValueResult result;
++        result.requestId = req.requestId;
++        VhalValue v{req.value.prop, req.value.areaId, req.value.value.int32Values,
++                    req.value.value.floatValues};
++        auto kv = toKuksa(bound->conv, v);
++        if (!kv) {
++            result.status = aidlvhal::StatusCode::INVALID_ARG;
++        } else if (!mConnected) {
++            result.status = aidlvhal::StatusCode::TRY_AGAIN;
++        } else if (!sendTarget(bound->path, bound->conv, *kv)) {
++            result.status = aidlvhal::StatusCode::INTERNAL_ERROR;
++        } else {
++            result.status = aidlvhal::StatusCode::OK;
++            // The store is not touched here: it changes when the state comes
++            // back from the Databroker. Watch for it with a timeout.
++            // Values clamped by toKuksa are compared in their VHAL form.
++            VhalValue expected = v;
++            if (bound->conv == Conv::kTemperature) {
++                expected.floats = {static_cast<float>(kv->d)};
++            }
++            std::lock_guard lck(mPendingMutex);
++            mPending[{v.prop, v.area}] = Pending{bound->conv, expected,
++                                                 std::chrono::steady_clock::now() + kApplyTimeout};
++            mPendingCv.notify_all();
++        }
++        results.push_back(result);
++    }
++
++    if (!results.empty()) (*callback)(std::move(results));
++    if (!passThrough.empty()) {
++        return fake::FakeVehicleHardware::setValues(callback, passThrough);
++    }
++    return aidlvhal::StatusCode::OK;
++}
++
++void KuksaVehicleHardware::registerOnPropertySetErrorEvent(
++        std::unique_ptr<const PropertySetErrorCallback> callback) {
++    {
++        std::lock_guard lck(mErrMutex);
++        mErrCallback = std::shared_ptr<const PropertySetErrorCallback>(std::move(callback));
++    }
++    // Also give the base class a forwarding callback (it never invokes it).
++    fake::FakeVehicleHardware::registerOnPropertySetErrorEvent(
++            std::make_unique<const PropertySetErrorCallback>(
++                    [this](std::vector<::android::hardware::automotive::vehicle::SetValueErrorEvent> events) {
++                        std::shared_ptr<const PropertySetErrorCallback> cb;
++                        {
++                            std::lock_guard lck(mErrMutex);
++                            cb = mErrCallback;
++                        }
++                        if (cb) (*cb)(std::move(events));
++                    }));
++}
++
++void KuksaVehicleHardware::pendingLoop() {
++    std::unique_lock lck(mPendingMutex);
++    while (!mStop) {
++        auto now = std::chrono::steady_clock::now();
++        auto next = now + std::chrono::seconds(1);
++        std::vector<::android::hardware::automotive::vehicle::SetValueErrorEvent> errors;
++        for (auto it = mPending.begin(); it != mPending.end();) {
++            if (it->second.deadline <= now) {
++                // The Databroker may legitimately not emit an event when the
++                // state already equals the target.
++                if (!sameAsStored(it->second.requested)) {
++                    errors.push_back(::android::hardware::automotive::vehicle::SetValueErrorEvent{aidlvhal::StatusCode::TRY_AGAIN,
++                                                        it->first.first, it->first.second});
++                }
++                it = mPending.erase(it);
++            } else {
++                next = std::min(next, it->second.deadline);
++                ++it;
++            }
++        }
++        if (!errors.empty()) {
++            std::shared_ptr<const PropertySetErrorCallback> cb;
++            {
++                std::lock_guard elck(mErrMutex);
++                cb = mErrCallback;
++            }
++            lck.unlock();
++            LOG(WARNING) << "KuksaVehicleHardware: " << errors.size()
++                         << " write(s) not reflected by Databroker in time";
++            if (cb) (*cb)(std::move(errors));
++            lck.lock();
++            continue;
++        }
++        mPendingCv.wait_until(lck, next);
++    }
++}
++
++::android::hardware::automotive::vehicle::DumpResult KuksaVehicleHardware::dump(
++        const std::vector<std::string>& options) {
++    auto result = fake::FakeVehicleHardware::dump(options);
++    result.buffer += android::base::StringPrintf(
++            "KuksaVehicleHardware: addr=%s connected=%d updates=%llu rejected=%llu\n",
++            mKuksaAddr.c_str(), mConnected.load(),
++            static_cast<unsigned long long>(mUpdateCount.load()),
++            static_cast<unsigned long long>(mRejectedCount.load()));
++    return result;
++}
++
++}  // namespace cuttlefish::kuksa_vhal
+diff --git a/host/commands/vhal_proxy_server/kuksa/KuksaVehicleHardware.h b/host/commands/vhal_proxy_server/kuksa/KuksaVehicleHardware.h
+new file mode 100644
+index 000000000..52dd67d74
+--- /dev/null
++++ b/host/commands/vhal_proxy_server/kuksa/KuksaVehicleHardware.h
+@@ -0,0 +1,80 @@
++// IVehicleHardware that mirrors the KUKSA Databroker (VSS) into the fake VHAL.
++//
++// Derived from FakeVehicleHardware so that every property that is not bound to
++// a VSS path (power, users, INFO_*, ...) keeps its fake behavior. Bound
++// properties are fed from Databroker subscriptions; HVAC writes are forwarded
++// to Databroker as actuator targets and only become visible to VHAL clients
++// once the state comes back through the subscription (SYS-003 section 9).
++#pragma once
++
++#include <FakeVehicleHardware.h>
++
++#include <atomic>
++#include <chrono>
++#include <condition_variable>
++#include <map>
++#include <memory>
++#include <mutex>
++#include <string>
++#include <thread>
++
++#include "KuksaMapping.h"
++#include "kuksa/val/v1/val.grpc.pb.h"
++
++namespace cuttlefish::kuksa_vhal {
++
++namespace fake = ::android::hardware::automotive::vehicle::fake;
++namespace aidlvhal = ::aidl::android::hardware::automotive::vehicle;
++
++class KuksaVehicleHardware : public fake::FakeVehicleHardware {
++  public:
++    KuksaVehicleHardware(std::string configDir, std::string kuksaAddr, int32_t s2rS2dConfig);
++    ~KuksaVehicleHardware() override;
++
++    aidlvhal::StatusCode setValues(
++            std::shared_ptr<const SetValuesCallback> callback,
++            const std::vector<aidlvhal::SetValueRequest>& requests) override;
++
++    void registerOnPropertySetErrorEvent(
++            std::unique_ptr<const PropertySetErrorCallback> callback) override;
++
++    ::android::hardware::automotive::vehicle::DumpResult dump(const std::vector<std::string>& options) override;
++
++  private:
++    struct Pending {
++        Conv conv;
++        VhalValue requested;
++        std::chrono::steady_clock::time_point deadline;
++    };
++
++    void subscribeLoop();
++    bool subscribeOnce();
++    void onKuksaUpdate(const std::string& path, const ::kuksa::val::v1::Datapoint& dp);
++    void applyToStore(const VhalValue& v);
++    bool sameAsStored(const VhalValue& v) const;
++    bool sendTarget(const std::string& path, Conv conv, const KuksaValue& value);
++    void pendingLoop();
++
++    const std::string mKuksaAddr;
++    std::shared_ptr<::grpc::Channel> mChannel;
++    std::unique_ptr<::kuksa::val::v1::VAL::Stub> mStub;
++
++    std::atomic<bool> mStop{false};
++    std::mutex mCtxMutex;
++    ::grpc::ClientContext* mStreamCtx = nullptr;
++    std::thread mSubscribeThread;
++
++    std::mutex mPendingMutex;
++    std::condition_variable mPendingCv;
++    std::map<std::pair<int32_t, int32_t>, Pending> mPending;
++    std::thread mPendingThread;
++
++    std::mutex mErrMutex;
++    std::shared_ptr<const PropertySetErrorCallback> mErrCallback;
++
++    std::atomic<bool> mConnected{false};
++    std::atomic<uint64_t> mUpdateCount{0};
++    std::atomic<uint64_t> mRejectedCount{0};
++};
++
++}  // namespace cuttlefish::kuksa_vhal
+diff --git a/host/commands/vhal_proxy_server/kuksa/proto/kuksa/val/v1/types.proto b/host/commands/vhal_proxy_server/kuksa/proto/kuksa/val/v1/types.proto
+new file mode 100644
+index 000000000..7e110f0a7
+--- /dev/null
++++ b/host/commands/vhal_proxy_server/kuksa/proto/kuksa/val/v1/types.proto
+@@ -0,0 +1,286 @@
++/********************************************************************************
++ * Copyright (c) 2022 Contributors to the Eclipse Foundation
++ *
++ * See the NOTICE file(s) distributed with this work for additional
++ * information regarding copyright ownership.
++ *
++ * This program and the accompanying materials are made available under the
++ * terms of the Apache License 2.0 which is available at
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ ********************************************************************************/
++syntax = "proto3";
++
++package kuksa.val.v1;
++import "google/protobuf/timestamp.proto";
++
++option go_package = "kuksa/val/v1";
++
++// Describes a VSS entry
++// When requesting an entry, the amount of information returned can
++// be controlled by specifying either a `View` or a set of `Field`s.
++message DataEntry {
++  // Defines the full VSS path of the entry.
++  string path = 1;  // [field: FIELD_PATH]
++
++  // The value (datapoint)
++  Datapoint value = 2;  // [field: FIELD_VALUE]
++
++  // Actuator target (only used if the entry is an actuator)
++  Datapoint actuator_target = 3;  // [field: FIELD_ACTUATOR_TARGET]
++
++  // Metadata for this entry
++  Metadata metadata = 10;  // [field: FIELD_METADATA]
++}
++
++message Datapoint {
++  google.protobuf.Timestamp timestamp = 1;
++
++  oneof value {
++    string string            = 11;
++    bool bool                = 12;
++    sint32 int32             = 13;
++    sint64 int64             = 14;
++    uint32 uint32            = 15;
++    uint64 uint64            = 16;
++    float float              = 17;
++    double double            = 18;
++    StringArray string_array = 21;
++    BoolArray bool_array     = 22;
++    Int32Array int32_array   = 23;
++    Int64Array int64_array   = 24;
++    Uint32Array uint32_array = 25;
++    Uint64Array uint64_array = 26;
++    FloatArray float_array   = 27;
++    DoubleArray double_array = 28;
++  }
++}
++
++message Metadata {
++  // Data type
++  // The VSS data type of the entry (i.e. the value, min, max etc).
++  //
++  // NOTE: protobuf doesn't have int8, int16, uint8 or uint16 which means
++  // that these values must be serialized as int32 and uint32 respectively.
++  DataType data_type = 11;  // [field: FIELD_METADATA_DATA_TYPE]
++
++  // Entry type
++  EntryType entry_type = 12;  // [field: FIELD_METADATA_ENTRY_TYPE]
++
++  // Description
++  // Describes the meaning and content of the entry.
++  optional string description = 13;  // [field: FIELD_METADATA_DESCRIPTION]
++
++  // Comment [optional]
++  // A comment can be used to provide additional informal information
++  // on a entry.
++  optional string comment = 14;  // [field: FIELD_METADATA_COMMENT]
++
++  // Deprecation [optional]
++  // Whether this entry is deprecated. Can contain recommendations of what
++  // to use instead.
++  optional string deprecation = 15;  // [field: FIELD_METADATA_DEPRECATION]
++
++  // Unit [optional]
++  // The unit of measurement
++  optional string unit = 16;  // [field: FIELD_METADATA_UNIT]
++
++  // Value restrictions [optional]
++  // Restrict which values are allowed.
++  // Only restrictions matching the DataType {datatype} above are valid.
++  ValueRestriction value_restriction = 17;  // [field: FIELD_METADATA_VALUE_RESTRICTION]
++
++  // Entry type specific metadata
++  oneof entry_specific {
++    Actuator actuator   = 20;  // [field: FIELD_METADATA_ACTUATOR]
++    Sensor sensor       = 30;  // [field: FIELD_METADATA_SENSOR]
++    Attribute attribute = 40;  // [field: FIELD_METADATA_ATTRIBUTE]
++  }
++}
++
++///////////////////////
++// Actuator specific fields
++message Actuator {
++  // Nothing for now
++}
++
++////////////////////////
++// Sensor specific
++message Sensor {
++  // Nothing for now
++}
++
++////////////////////////
++// Attribute specific
++message Attribute {
++  // Nothing for now.
++}
++
++// Value restriction
++//
++// One ValueRestriction{type} for each type, since
++// they don't make sense unless the types match
++//
++message ValueRestriction {
++  oneof type {
++    ValueRestrictionString string = 21;
++    // For signed VSS integers
++    ValueRestrictionInt signed = 22;
++    // For unsigned VSS integers
++    ValueRestrictionUint unsigned = 23;
++    // For floating point VSS values (float and double)
++    ValueRestrictionFloat floating_point = 24;
++  }
++}
++
++message ValueRestrictionInt {
++  optional sint64 min            = 1;
++  optional sint64 max            = 2;
++  repeated sint64 allowed_values = 3;
++}
++
++message ValueRestrictionUint {
++  optional uint64 min            = 1;
++  optional uint64 max            = 2;
++  repeated uint64 allowed_values = 3;
++}
++
++message ValueRestrictionFloat {
++  optional double min = 1;
++  optional double max = 2;
++
++  // allowed for doubles/floats not recommended
++  repeated double allowed_values = 3;
++}
++
++// min, max doesn't make much sense for a string
++message ValueRestrictionString {
++  repeated string allowed_values = 3;
++}
++
++// VSS Data type of a signal
++//
++// Protobuf doesn't support int8, int16, uint8 or uint16.
++// These are mapped to int32 and uint32 respectively.
++//
++enum DataType {
++  DATA_TYPE_UNSPECIFIED     = 0;
++  DATA_TYPE_STRING          = 1;
++  DATA_TYPE_BOOLEAN         = 2;
++  DATA_TYPE_INT8            = 3;
++  DATA_TYPE_INT16           = 4;
++  DATA_TYPE_INT32           = 5;
++  DATA_TYPE_INT64           = 6;
++  DATA_TYPE_UINT8           = 7;
++  DATA_TYPE_UINT16          = 8;
++  DATA_TYPE_UINT32          = 9;
++  DATA_TYPE_UINT64          = 10;
++  DATA_TYPE_FLOAT           = 11;
++  DATA_TYPE_DOUBLE          = 12;
++  DATA_TYPE_TIMESTAMP       = 13;
++  DATA_TYPE_STRING_ARRAY    = 20;
++  DATA_TYPE_BOOLEAN_ARRAY   = 21;
++  DATA_TYPE_INT8_ARRAY      = 22;
++  DATA_TYPE_INT16_ARRAY     = 23;
++  DATA_TYPE_INT32_ARRAY     = 24;
++  DATA_TYPE_INT64_ARRAY     = 25;
++  DATA_TYPE_UINT8_ARRAY     = 26;
++  DATA_TYPE_UINT16_ARRAY    = 27;
++  DATA_TYPE_UINT32_ARRAY    = 28;
++  DATA_TYPE_UINT64_ARRAY    = 29;
++  DATA_TYPE_FLOAT_ARRAY     = 30;
++  DATA_TYPE_DOUBLE_ARRAY    = 31;
++  DATA_TYPE_TIMESTAMP_ARRAY = 32;
++}
++
++// Entry type
++enum EntryType {
++  ENTRY_TYPE_UNSPECIFIED = 0;
++  ENTRY_TYPE_ATTRIBUTE   = 1;
++  ENTRY_TYPE_SENSOR      = 2;
++  ENTRY_TYPE_ACTUATOR    = 3;
++}
++
++// A `View` specifies a set of fields which should
++// be populated in a `DataEntry` (in a response message)
++enum View {
++  VIEW_UNSPECIFIED   = 0;   // Unspecified. Equivalent to VIEW_CURRENT_VALUE unless `fields` are explicitly set.
++  VIEW_CURRENT_VALUE = 1;   // Populate DataEntry with value.
++  VIEW_TARGET_VALUE  = 2;   // Populate DataEntry with actuator target.
++  VIEW_METADATA      = 3;   // Populate DataEntry with metadata.
++  VIEW_FIELDS        = 10;  // Populate DataEntry only with requested fields.
++  VIEW_ALL           = 20;  // Populate DataEntry with everything.
++}
++
++// A `Field` corresponds to a specific field of a `DataEntry`.
++//
++// It can be used to:
++//   * populate only specific fields of a `DataEntry` response.
++//   * specify which fields of a `DataEntry` should be set as
++//     part of a `Set` request.
++//   * subscribe to only specific fields of a data entry.
++//   * convey which fields of an updated `DataEntry` have changed.
++enum Field {
++  FIELD_UNSPECIFIED                = 0;   // "*" i.e. everything
++  FIELD_PATH                       = 1;   // path
++  FIELD_VALUE                      = 2;   // value
++  FIELD_ACTUATOR_TARGET            = 3;   // actuator_target
++  FIELD_METADATA                   = 10;  // metadata.*
++  FIELD_METADATA_DATA_TYPE         = 11;  // metadata.data_type
++  FIELD_METADATA_DESCRIPTION       = 12;  // metadata.description
++  FIELD_METADATA_ENTRY_TYPE        = 13;  // metadata.entry_type
++  FIELD_METADATA_COMMENT           = 14;  // metadata.comment
++  FIELD_METADATA_DEPRECATION       = 15;  // metadata.deprecation
++  FIELD_METADATA_UNIT              = 16;  // metadata.unit
++  FIELD_METADATA_VALUE_RESTRICTION = 17;  // metadata.value_restriction.*
++  FIELD_METADATA_ACTUATOR          = 20;  // metadata.actuator.*
++  FIELD_METADATA_SENSOR            = 30;  // metadata.sensor.*
++  FIELD_METADATA_ATTRIBUTE         = 40;  // metadata.attribute.*
++}
++
++// Error response shall be an HTTP-like code.
++// Should follow https://www.w3.org/TR/viss2-transport/#status-codes.
++message Error {
++  uint32 code    = 1;
++  string reason  = 2;
++  string message = 3;
++}
++
++// Used in get/set requests to report errors for specific entries
++message DataEntryError {
++  string path = 1;  // vss path
++  Error error = 2;
++}
++
++message StringArray {
++  repeated string values = 1;
++}
++
++message BoolArray {
++  repeated bool values = 1;
++}
++
++message Int32Array {
++  repeated sint32 values = 1;
++}
++
++message Int64Array {
++  repeated sint64 values = 1;
++}
++
++message Uint32Array {
++  repeated uint32 values = 1;
++}
++
++message Uint64Array {
++  repeated uint64 values = 1;
++}
++
++message FloatArray {
++  repeated float values = 1;
++}
++
++message DoubleArray {
++  repeated double values = 1;
++}
+diff --git a/host/commands/vhal_proxy_server/kuksa/proto/kuksa/val/v1/val.proto b/host/commands/vhal_proxy_server/kuksa/proto/kuksa/val/v1/val.proto
+new file mode 100644
+index 000000000..71d5597aa
+--- /dev/null
++++ b/host/commands/vhal_proxy_server/kuksa/proto/kuksa/val/v1/val.proto
+@@ -0,0 +1,115 @@
++/********************************************************************************
++ * Copyright (c) 2022 Contributors to the Eclipse Foundation
++ *
++ * See the NOTICE file(s) distributed with this work for additional
++ * information regarding copyright ownership.
++ *
++ * This program and the accompanying materials are made available under the
++ * terms of the Apache License 2.0 which is available at
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ ********************************************************************************/
++
++syntax = "proto3";
++
++package kuksa.val.v1;
++
++option go_package = "kuksa/val/v1";
++
++import "kuksa/val/v1/types.proto";
++
++// Note on authorization:
++// Tokens (auth-token or auth-uuid) are sent as (GRPC / http2) metadata.
++//
++// The auth-token is a JWT compliant token as the examples found here:
++// https://github.com/eclipse/kuksa.val/tree/master/kuksa_certificates/jwt
++//
++// See also https://github.com/eclipse/kuksa.val/blob/master/doc/jwt.md
++//
++// Upon reception of auth-token, server shall generate an auth-uuid in metadata
++// that the client can use instead of auth-token in subsequent calls.
++
++service VAL {
++  // Get entries
++  rpc Get(GetRequest) returns (GetResponse);
++
++  // Set entries
++  rpc Set(SetRequest) returns (SetResponse);
++
++  // Subscribe to a set of entries
++  //
++  // Returns a stream of notifications.
++  //
++  // InvalidArgument is returned if the request is malformed.
++  rpc Subscribe(SubscribeRequest) returns (stream SubscribeResponse);
++
++  // Shall return information that allows the client to determine
++  // what server/server implementation/version it is talking to
++  // eg. kuksa-databroker 0.5.1
++  rpc GetServerInfo(GetServerInfoRequest) returns (GetServerInfoResponse);
++}
++
++// Define which data we want
++message EntryRequest {
++  string path           = 1;
++  View view             = 2;
++  repeated Field fields = 3;
++}
++
++// Request a set of entries.
++message GetRequest {
++  repeated EntryRequest entries = 1;
++}
++
++// Global errors are specified in `error`.
++// Errors for individual entries are specified in `errors`.
++message GetResponse {
++  repeated DataEntry entries     = 1;
++  repeated DataEntryError errors = 2;
++  Error error                    = 3;
++}
++
++// Define the data we want to set
++message EntryUpdate {
++  DataEntry entry       = 1;
++  repeated Field fields = 2;
++}
++
++// A list of entries to be updated
++message SetRequest {
++  repeated EntryUpdate updates = 1;
++}
++
++// Global errors are specified in `error`.
++// Errors for individual entries are specified in `errors`.
++message SetResponse {
++  Error error                    = 1;
++  repeated DataEntryError errors = 2;
++}
++
++// Define what to subscribe to
++message SubscribeEntry {
++  string path           = 1;
++  View view             = 2;
++  repeated Field fields = 3;
++}
++
++// Subscribe to changes in datapoints.
++message SubscribeRequest {
++  repeated SubscribeEntry entries = 1;
++}
++
++// A subscription response
++message SubscribeResponse {
++  repeated EntryUpdate updates = 1;
++}
++
++message GetServerInfoRequest {
++  // Nothing yet
++}
++
++message GetServerInfoResponse {
++  string name    = 1;
++  string version = 2;
++}
+diff --git a/host/commands/vhal_proxy_server/kuksa/test/mapping_test.cpp b/host/commands/vhal_proxy_server/kuksa/test/mapping_test.cpp
+new file mode 100644
+index 000000000..fb2a77daa
+--- /dev/null
++++ b/host/commands/vhal_proxy_server/kuksa/test/mapping_test.cpp
+@@ -0,0 +1,79 @@
++// Plain-C++ unit test, no gtest: g++ -std=c++17 -I.. mapping_test.cpp ../KuksaMapping.cpp
++#include "KuksaMapping.h"
++
++#include <cmath>
++#include <cstdio>
++
++using namespace cuttlefish::kuksa_vhal;
++
++static int failures = 0;
++#define CHECK(c) do { if (!(c)) { std::printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #c); ++failures; } } while (0)
++
++static KuksaValue num(double d) { KuksaValue v; v.d = d; return v; }
++static KuksaValue boolean(bool b) { KuksaValue v; v.isBool = true; v.b = b; return v; }
++static KuksaValue str(const char* s) { KuksaValue v; v.isString = true; v.s = s; return v; }
++static bool near(float a, float b) { return std::fabs(a - b) < 1e-3; }
++
++int main() {
++    // Speed km/h -> m/s
++    auto r = toVhal(Conv::kSpeed, num(72.0));
++    CHECK(r && r->size() == 1 && (*r)[0].prop == kPerfVehicleSpeed && near((*r)[0].floats[0], 20.0f));
++    CHECK(!toVhal(Conv::kSpeed, num(300.0)));
++    CHECK(!toVhal(Conv::kSpeed, boolean(true)));
++
++    // Fan: level <-> percent round trip for all 8 levels
++    const int pct[8] = {0, 14, 29, 43, 57, 71, 86, 100};
++    for (int lv = 0; lv < 8; ++lv) {
++        auto f = toVhal(Conv::kFanSpeed, num(pct[lv]));
++        CHECK(f && (*f)[0].ints[0] == lv);
++        VhalValue vv{kHvacFanSpeed, kAreaSeatRow1Left, {lv}, {}};
++        auto k = toKuksa(Conv::kFanSpeed, vv);
++        CHECK(k && static_cast<int>(k->d) == pct[lv]);
++    }
++    CHECK(!toVhal(Conv::kFanSpeed, num(101)));
++
++    // Air distribution
++    auto a = toVhal(Conv::kAirDistribution, str("MIDDLE"));
++    CHECK(a && (*a)[0].ints[0] == 3);
++    CHECK(!toVhal(Conv::kAirDistribution, str("LEFT")));
++    VhalValue dir{kHvacFanDirection, kAreaSeatRow1Left, {2}, {}};
++    CHECK(toKuksa(Conv::kAirDistribution, dir)->s == "DOWN");
++    dir.ints = {4};  // DEFROST bit has no VSS value
++    CHECK(!toKuksa(Conv::kAirDistribution, dir));
++
++    // Gear
++    struct { int vss; int32_t vhal; } gears[] = {{-1, 2}, {0, 1}, {1, 0x10}, {2, 0x20}, {5, 0x100},
++                                                 {6, 0x200}, {126, 4}, {127, 8}};
++    for (auto& g : gears) {
++        auto r2 = toVhal(Conv::kGear, num(g.vss));
++        CHECK(r2 && r2->size() == 2 && (*r2)[0].ints[0] == g.vhal && (*r2)[1].prop == kCurrentGear);
++    }
++    CHECK(!toVhal(Conv::kGear, num(50)));
++
++    // Fuel: 50% of 15000 mL; low only at 0%
++    auto fu = toVhal(Conv::kFuel, num(50));
++    CHECK(fu && near((*fu)[0].floats[0], 7500.0f) && (*fu)[1].ints[0] == 0);
++    CHECK((*toVhal(Conv::kFuel, num(0)))[1].ints[0] == 1);
++    CHECK((*toVhal(Conv::kFuel, num(1)))[1].ints[0] == 0);
++
++    // Temperature clamp on write, reject on read
++    VhalValue t{kHvacTemperatureSet, kAreaSeatRow1Left, {}, {32.5f}};
++    CHECK(near(toKuksa(Conv::kTemperature, t)->d, 30.0f));
++    CHECK(!toVhal(Conv::kTemperature, num(15.0)));
++
++    // Booleans / door / airbag
++    CHECK((*toVhal(Conv::kDoorOpen, boolean(true)))[0].ints[0] == 1);
++    CHECK((*toVhal(Conv::kAirbag, boolean(true)))[0].ints[0] == 2);
++    CHECK((*toVhal(Conv::kSeatBelt, boolean(false)))[0].ints[0] == 0);
++    CHECK((*toVhal(Conv::kDefrost, boolean(true)))[0].area == kAreaWindowFrontWindshield);
++
++    // ESC / ABS are not connected
++    for (auto& b : bindings()) {
++        CHECK(std::string(b.path).find("ESC") == std::string::npos);
++        CHECK(std::string(b.path).find("ABS") == std::string::npos);
++        CHECK(b.writable == stateProp(b.conv).has_value());
++    }
++
++    std::printf(failures ? "FAILED (%d)\n" : "OK\n", failures);
++    return failures != 0;
++}
+diff --git a/host/commands/vhal_proxy_server/vhal_proxy_server.cpp b/host/commands/vhal_proxy_server/vhal_proxy_server.cpp
+index 76aa256a4..f0c1dcd49 100644
+--- a/host/commands/vhal_proxy_server/vhal_proxy_server.cpp
++++ b/host/commands/vhal_proxy_server/vhal_proxy_server.cpp
+@@ -16,6 +16,7 @@
+ 
+ #include "FakeVehicleHardware.h"
+ #include "GRPCVehicleProxyServer.h"
++#include "KuksaVehicleHardware.h"
+ #include "vsockinfo.h"
+ 
+ #include <VehicleUtils.h>
+@@ -54,10 +55,21 @@ int main(int argc, char* argv[]) {
+   int32_t s2rS2dConfig =
+       toInt(VehicleApPowerStateConfigFlag::ENABLE_DEEP_SLEEP_FLAG) |
+       toInt(VehicleApPowerStateConfigFlag::ENABLE_HIBERNATION_FLAG);
+-  auto fake_hardware =
+-      std::make_unique<FakeVehicleHardware>(argv[1], "", false, s2rS2dConfig);
++  // KUKSA_ADDR (e.g. "172.17.0.1:55555") connects the VHAL to a KUKSA
++  // Databroker; unset keeps the plain fake VHAL.
++  std::unique_ptr<::android::hardware::automotive::vehicle::IVehicleHardware>
++      hardware;
++  if (const char* kuksa_addr = getenv("KUKSA_ADDR");
++      kuksa_addr != nullptr && kuksa_addr[0] != '\0') {
++    LOG(INFO) << "KUKSA_ADDR=" << kuksa_addr << ", using KuksaVehicleHardware";
++    hardware = std::make_unique<::cuttlefish::kuksa_vhal::KuksaVehicleHardware>(
++        argv[1], kuksa_addr, s2rS2dConfig);
++  } else {
++    hardware = std::make_unique<FakeVehicleHardware>(argv[1], "", false,
++                                                     s2rS2dConfig);
++  }
+   auto proxy_server = std::make_unique<GrpcVehicleProxyServer>(
+-      listen_addrs, std::move(fake_hardware));
++      listen_addrs, std::move(hardware));
+ 
+   LOG(INFO) << "VHAL Server is listening on " << grpc_server_addr << ", "
+             << eth_addr;

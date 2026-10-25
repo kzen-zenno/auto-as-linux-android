@@ -1,0 +1,10 @@
+diff --git a/flag_values/bp2a/RELEASE_AVF_ENABLE_EARLY_VM.textproto b/flag_values/bp2a/RELEASE_AVF_ENABLE_EARLY_VM.textproto
+index cead4b780..be4e2095f 100644
+--- a/flag_values/bp2a/RELEASE_AVF_ENABLE_EARLY_VM.textproto
++++ b/flag_values/bp2a/RELEASE_AVF_ENABLE_EARLY_VM.textproto
+@@ -1,4 +1,4 @@
+ name: "RELEASE_AVF_ENABLE_EARLY_VM"
+ value {
+-  bool_value: true
++  bool_value: false
+ }

@@ -1,0 +1,58 @@
+services:
+  aaos16:
+    build:
+      context: .
+      args:
+        UID: ${UID}
+        GID: ${GID}
+        KVM_GID: ${KVM_GID}
+
+    image: aaos16-builder
+
+    container_name: aaos16-builder
+
+    hostname: aaos16-builder
+
+    tty: true
+    stdin_open: true
+
+    volumes:
+      - ./workspace:/workspace
+      - ./workspace/ccache:/ccache
+      - ./patches:/patches
+      - /lib/modules:/lib/modules:ro
+
+    environment:
+      USE_CCACHE: "1"
+      CCACHE_DIR: "/ccache"
+      # KUKSA Databroker published on the host by auto-as-linux. Unset to use
+      # the plain fake VHAL. Read by vhal_proxy_server (see kuksa/ in
+      # device/google/cuttlefish/host/commands/vhal_proxy_server).
+      KUKSA_ADDR: "host.docker.internal:55555"
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    working_dir: /workspace
+
+    ports:
+      - "127.0.0.1:8443:8443"
+      - "127.0.0.1:6520:6520"
+
+    privileged: true
+
+    devices:
+      - /dev/kvm
+      - /dev/vhost-net
+      - /dev/vhost-vsock
+      - /dev/net/tun
+
+    group_add:
+      - "${KVM_GID}"
+
+    shm_size: "16gb"
+
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535

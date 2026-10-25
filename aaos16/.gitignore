@@ -1,0 +1,8 @@
+# Host-specific, regenerate via README "1) Create .env"
+.env
+
+# AOSP source tree (repo sync'd, ~290GB), ccache, and any build/run
+# artifacts placed under workspace/ (cuttlefish instance state, etc.)
+workspace/
+
+*.log
