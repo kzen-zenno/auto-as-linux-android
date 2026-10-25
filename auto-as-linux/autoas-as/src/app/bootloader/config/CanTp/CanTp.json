@@ -1,0 +1,14 @@
+{
+  "class": "CanTp",
+  "channels": [
+    {
+      "name": "P2P",
+      "LL_DL": 64
+    },
+    {
+      "name": "P2A",
+      "ComType": "FUNCTIONAL",
+      "LL_DL": 64
+    }
+  ]
+}

@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AS-ONE Web CAN Tool</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+  :root {
+    --bg: #12161c;
+    --panel: #1b212a;
+    --panel-2: #222a35;
+    --border: #2c3542;
+    --text: #d7dee6;
+    --text-dim: #8a97a6;
+    --accent: #12beff;
+    --accent-dim: #0c8fc0;
+    --ok: #35d488;
+    --err: #ff5c5c;
+    font-family: "Consolas", "Menlo", "Monaco", monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: .02em; }
+  header h1 span { color: var(--accent); }
+  .status { font-size: 12px; display: flex; align-items: center; gap: 6px; color: var(--text-dim); }
+  .status { gap: 12px; }
+  .hvac-toggle { display: flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--err); }
+  .dot.up { background: var(--ok); }
+
+  main {
+    display: grid;
+    grid-template-columns: 340px 1fr;
+    gap: 16px;
+    padding: 16px;
+    align-items: start;
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 16px;
+  }
+  .panel h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--text-dim);
+    margin: 0 0 10px;
+  }
+  .row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+  .row label { width: 74px; font-size: 12px; color: var(--text-dim); flex-shrink: 0; }
+  input, select {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 13px;
+    width: 100%;
+    font-family: inherit;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent-dim); }
+  button {
+    background: var(--accent-dim);
+    color: #eafcff;
+    border: none;
+    border-radius: 6px;
+    padding: 7px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  button:hover { background: var(--accent); color: #06222c; }
+  button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+  button.secondary:hover { background: #29323e; color: var(--text); }
+  button.danger { background: #3a1c22; color: #ff9a9a; border: 1px solid #5a2530; }
+  button.danger:hover { background: #522028; }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+
+  .checkbox-row { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
+  .checkbox-row input { width: auto; }
+
+  table.buses { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
+  table.buses th, table.buses td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  table.buses th { color: var(--text-dim); font-weight: 500; }
+  .empty { color: var(--text-dim); font-size: 12px; padding: 6px 0; }
+  .error { color: var(--err); font-size: 12px; margin-top: 6px; }
+
+  .trace-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .trace-toolbar .spacer { flex: 1; }
+  .trace-toolbar .count { font-size: 12px; color: var(--text-dim); }
+  .view-toggle { display: flex; gap: 2px; }
+  .view-toggle button { border-radius: 0; padding: 6px 12px; }
+  .view-toggle button:first-child { border-radius: 6px 0 0 6px; }
+  .view-toggle button:last-child { border-radius: 0 6px 6px 0; }
+  .view-toggle button.active { background: var(--accent-dim); color: #eafcff; border-color: var(--accent-dim); }
+  select.update-rate { width: auto; font-size: 11px; padding: 5px 6px; }
+
+  .trace-wrap {
+    background: #0d1116;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    height: 62vh;
+    overflow: auto;
+  }
+  table.trace { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.trace thead th {
+    position: sticky; top: 0;
+    background: #141a21;
+    color: var(--text-dim);
+    text-align: left;
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 500;
+  }
+  table.trace td { padding: 3px 10px; white-space: nowrap; border-bottom: 1px solid #171d24; }
+  table.trace tr:hover td { background: #151b22; }
+  .live-row { cursor: pointer; }
+  .canid { color: var(--accent); font-weight: 600; }
+  .ascii { color: #e0a75e; }
+  .ext-badge {
+    font-size: 10px;
+    background: #2c3542;
+    color: var(--text-dim);
+    padding: 1px 5px;
+    border-radius: 4px;
+    margin-left: 6px;
+  }
+  .dir-badge {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 4px;
+    letter-spacing: .03em;
+  }
+  .dir-rx { background: #17324a; color: #7cc9ff; }
+  .dir-tx { background: #3a2f14; color: #f0b93e; }
+
+  .dbc-file-name { font-size: 12px; color: var(--text-dim); margin: 0 0 8px; }
+  .dbc-file-name .dbc-file-meta { color: #5c6b7a; margin-left: 6px; }
+  .dbc-tree { max-height: 46vh; overflow: auto; }
+  .dbc-msg { border-bottom: 1px solid #171d24; }
+  .dbc-msg-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 4px;
+    cursor: pointer;
+    font-size: 12.5px;
+  }
+  .dbc-msg-row:hover { background: #151b22; }
+  .dbc-caret {
+    display: inline-block;
+    color: var(--text-dim);
+    font-size: 10px;
+    transition: transform .12s ease;
+    width: 10px;
+    flex-shrink: 0;
+  }
+  .dbc-caret.open { transform: rotate(90deg); }
+  .dbc-msg-id { flex-shrink: 0; }
+  .dbc-msg-name { font-weight: 600; flex-shrink: 0; }
+  .dbc-msg-meta { color: var(--text-dim); font-size: 11.5px; }
+  .dbc-msg-dir { font-size: 10px; padding: 1px 5px; border-radius: 4px; flex-shrink: 0; }
+  .dbc-send-btn { margin-left: auto; padding: 3px 10px; font-size: 11px; flex-shrink: 0; }
+  .dbc-body { padding: 2px 4px 10px 24px; }
+  .dbc-comment { color: var(--text-dim); font-size: 11.5px; font-style: italic; margin: 0 0 6px; }
+  table.dbc-sig-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  table.dbc-sig-table th {
+    text-align: left; color: var(--text-dim); font-weight: 500; padding: 3px 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  table.dbc-sig-table td { padding: 3px 6px; border-bottom: 1px solid #171d24; }
+  table.dbc-sig-table tr:hover td { background: #151b22; }
+  .sig-name { color: var(--accent); }
+  .sig-value { color: var(--ok); font-weight: 600; }
+</style>
+</head>
+<body>
+<div id="app">
+
+<header>
+  <h1>AS-ONE <span>Web CAN</span> Tool</h1>
+  <div class="status">
+    <label class="hvac-toggle" title="Answer AirconCommand (0x526) with an Aircon (0x323) state, standing in for the missing HVAC ECU">
+      <input type="checkbox" :checked="hvacEmulation" :disabled="hvacEmulation === null || hvacBusy" @change="setHvacEmulation($event.target.checked)">
+      HVAC ECU emulation
+    </label>
+    <span class="error" v-if="hvacError">{{ hvacError }}</span>
+    <span :class="['dot', wsConnected ? 'up' : '']"></span>
+    {{ wsConnected ? 'WS connected' : 'WS disconnected' }}
+  </div>
+</header>
+
+<main>
+  <div>
+    <div class="panel">
+      <h2>Open CAN Bus</h2>
+      <div class="row">
+        <label>Device</label>
+        <select v-model="openForm.device">
+          <option v-for="d in devices" :key="d" :value="d">{{ d }}</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>Port</label>
+        <input type="number" min="0" v-model.number="openForm.port">
+      </div>
+      <div class="row">
+        <label>Baudrate</label>
+        <select v-model.number="openForm.baudrate">
+          <option v-for="b in [125000,250000,500000,1000000]" :key="b" :value="b">{{ b }}</option>
+        </select>
+      </div>
+      <div class="row">
+        <button @click="openBus" :disabled="opening" style="width:100%">
+          {{ opening ? 'Opening...' : 'Open' }}
+        </button>
+      </div>
+      <div class="error" v-if="openError">{{ openError }}</div>
+
+      <table class="buses" v-if="buses.length">
+        <thead><tr><th>ID</th><th>Device</th><th>Port</th><th>Baud</th><th></th></tr></thead>
+        <tbody>
+          <tr v-for="b in buses" :key="b.id">
+            <td>{{ b.id }}</td>
+            <td>{{ b.device }}</td>
+            <td>{{ b.port }}</td>
+            <td>{{ b.baudrate }}</td>
+            <td><button class="danger" @click="closeBus(b.id)">Close</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="empty" v-else>No bus open yet.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Send Frame</h2>
+      <div class="row">
+        <label>Bus</label>
+        <select v-model.number="sendForm.busId">
+          <option v-for="b in buses" :key="b.id" :value="b.id">CAN{{ b.id }} ({{ b.device }})</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>CAN ID</label>
+        <input v-model="sendForm.canid" placeholder="hex, e.g. 7E0">
+      </div>
+      <div class="row">
+        <label>Data</label>
+        <input v-model="sendForm.data" placeholder="hex, e.g. 1122334455667788">
+      </div>
+      <div class="row">
+        <label></label>
+        <div class="checkbox-row">
+          <input type="checkbox" id="ext" v-model="sendForm.extended">
+          <label for="ext" style="width:auto">Extended ID</label>
+        </div>
+      </div>
+      <div class="row">
+        <label>Period</label>
+        <input type="number" min="0" step="10" v-model.number="sendForm.periodMs" placeholder="0 = once">
+      </div>
+      <div class="row">
+        <button v-if="!frameSendKey" @click="sendFrame" :disabled="!buses.length" style="width:100%">
+          {{ sendForm.periodMs > 0 ? 'Start Periodic Send' : 'Send' }}
+        </button>
+        <button v-else class="danger" @click="stopPeriodic(frameSendKey)" style="width:100%">
+          Hold Last Value
+        </button>
+      </div>
+      <div class="error" v-if="sendError">{{ sendError }}</div>
+    </div>
+
+    <div class="panel">
+      <h2>Send by Signal (DBC)</h2>
+      <div class="row">
+        <label>Bus</label>
+        <select v-model.number="sigSendForm.busId">
+          <option v-for="b in buses" :key="b.id" :value="b.id">CAN{{ b.id }} ({{ b.device }})</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>ECU</label>
+        <select v-model="sendEcu" @change="onSendEcuChange">
+          <option v-for="n in dbcNodes" :key="n" :value="n">{{ n }}</option>
+        </select>
+      </div>
+      <div class="row">
+        <label></label>
+        <button class="secondary" @click="startEcuDefaults(sigSendForm.busId)"
+                :disabled="sigSendForm.busId === null || !sendableMessages.length" style="width:100%">
+          Start All {{ sendEcu }} Messages (cyclic)
+        </button>
+      </div>
+      <div class="row">
+        <label>Message</label>
+        <select v-model="sigSendForm.messageName" @change="onSigMessageChange">
+          <option value="" disabled>Select a message…</option>
+          <option v-for="m in sendableMessages" :key="m.name" :value="m.name">
+            {{ m.name }} ({{ m.id_hex }})
+          </option>
+        </select>
+      </div>
+      <template v-if="selectedSigMessage">
+        <div class="row" v-for="sig in selectedSigMessage.signals" :key="sig.name">
+          <label :title="sig.name">{{ sig.name }}<template v-if="sig.unit"> ({{ sig.unit }})</template></label>
+          <input type="number" step="any" v-model.number="sigSendForm.values[sig.name]">
+        </div>
+      </template>
+      <div class="row">
+        <label>Period</label>
+        <input type="number" min="0" step="10" v-model.number="sigSendForm.periodMs" placeholder="0 = once">
+      </div>
+      <div class="row">
+        <button v-if="!sigSendKey" @click="sendBySignal" :disabled="!buses.length || !sigSendForm.messageName"
+                style="width:100%">
+          {{ sigSendForm.periodMs > 0 ? 'Start Periodic Send' : 'Send' }}
+        </button>
+        <button v-else class="danger" @click="stopPeriodic(sigSendKey)" style="width:100%">
+          Hold Last Value
+        </button>
+      </div>
+      <div class="error" v-if="sigSendError">{{ sigSendError }}</div>
+    </div>
+
+    <div class="panel">
+      <h2>Auto Sweep (Speed / Tacho)</h2>
+      <template v-for="s in sweeps" :key="s.message">
+        <div class="row"><label style="width:auto;font-weight:600">{{ s.message }}</label>
+          <span class="sig-value" v-if="liveSweepValue(s) !== ''">{{ liveSweepValue(s) }}</span>
+        </div>
+        <div class="row">
+          <label>Min</label><input type="number" step="any" v-model.number="s.min" :disabled="!!s.key">
+          <label>Max</label><input type="number" step="any" v-model.number="s.max" :disabled="!!s.key">
+        </div>
+        <div class="row">
+          <label>Step</label><input type="number" step="any" v-model.number="s.step" :disabled="!!s.key">
+          <label>Every(ms)</label><input type="number" min="10" step="10" v-model.number="s.stepIntervalMs" :disabled="!!s.key">
+        </div>
+        <div class="row">
+          <button v-if="!s.key" @click="startSweep(s)" :disabled="sigSendForm.busId === null" style="width:100%">
+            Start Auto Sweep
+          </button>
+          <button v-else class="danger" @click="stopSweep(s)" style="width:100%">
+            Hold Last Value
+          </button>
+        </div>
+      </template>
+      <div class="error" v-if="sweepError">{{ sweepError }}</div>
+    </div>
+
+    <div class="panel" v-if="periodicSenders.length">
+      <h2>Active Periodic Sends</h2>
+      <table class="buses">
+        <thead><tr><th>Bus</th><th>Label</th><th>CAN ID</th><th>Period</th><th>Mode</th><th></th></tr></thead>
+        <tbody>
+          <tr v-for="p in periodicSenders" :key="p.key">
+            <td>CAN{{ p.bus }}</td>
+            <td>{{ p.label }}</td>
+            <td class="canid">{{ p.canid }}</td>
+            <td>{{ p.period_ms }}ms</td>
+            <td>
+              <template v-if="p.mode === 'sweep'">sweep {{ p.min }}→{{ p.max }} step {{ p.step }}</template>
+              <template v-else-if="p.mode === 'held'">held @ {{ p.value }}</template>
+              <template v-else>fixed</template>
+            </td>
+            <td><button class="danger" @click="stopPeriodic(p.key)" :disabled="p.mode !== 'sweep'">Hold</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div>
+  <div class="panel" style="margin-bottom:0">
+    <h2>DBC Definitions</h2>
+    <div class="dbc-tree" v-if="dbcFiles.length">
+      <div v-for="file in dbcFiles" :key="file.filename">
+        <div class="dbc-file-name">
+          {{ file.filename }}
+          <span class="dbc-file-meta" v-if="file.nodes.length">nodes: {{ file.nodes.join(', ') }}</span>
+        </div>
+        <div class="dbc-msg" :id="'dbc-msg-' + msg.id" v-for="msg in file.messages" :key="msg.id">
+          <div class="dbc-msg-row" @click="toggleMsg(msg.id)">
+            <span class="dbc-caret" :class="{ open: openMsgs.has(msg.id) }">&#9656;</span>
+            <span class="canid dbc-msg-id">{{ msg.id_hex }}</span>
+            <span class="dbc-msg-name">{{ msg.name }}</span>
+            <span class="dbc-msg-meta">
+              dlc={{ msg.dlc }} &middot; {{ msg.node }}<template v-if="msg.cycle_time"> &middot; {{ msg.cycle_time }}ms</template>
+            </span>
+            <button class="secondary dbc-send-btn" @click.stop="selectForSend(msg)">Send…</button>
+          </div>
+          <div class="dbc-body" v-show="openMsgs.has(msg.id)">
+            <div class="dbc-comment" v-if="msg.comment">{{ msg.comment }}</div>
+            <table class="dbc-sig-table">
+              <thead>
+                <tr><th>Signal</th><th>Value</th><th>Bits</th><th>Endian</th><th>Factor / Offset</th><th>Range</th><th>Unit</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="sig in msg.signals" :key="sig.name">
+                  <td class="sig-name">{{ sig.name }}</td>
+                  <td class="sig-value">{{ formatSignalValue(msg, sig) }}</td>
+                  <td>{{ sig.start }}..{{ sig.start + sig.size - 1 }} ({{ sig.size }}b)</td>
+                  <td>{{ sig.endian }}</td>
+                  <td>{{ sig.factor }} / {{ sig.offset }}</td>
+                  <td>{{ sig.min !== null ? sig.min + ' .. ' + sig.max : '' }}</td>
+                  <td>{{ sig.unit }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="empty" v-else>No .dbc files loaded (place one under webcan/dbc/).</div>
+  </div>
+
+  <div class="panel" style="margin-bottom:0; margin-top:16px">
+    <div class="trace-toolbar">
+      <h2 style="margin:0">Trace</h2>
+      <div class="view-toggle">
+        <button :class="['secondary', viewMode === 'live' ? 'active' : '']" @click="viewMode = 'live'">Live</button>
+        <button :class="['secondary', viewMode === 'log' ? 'active' : '']" @click="viewMode = 'log'">Log</button>
+      </div>
+      <div class="spacer"></div>
+      <div class="count" v-if="viewMode === 'live'">{{ liveRowsSorted.length }} IDs</div>
+      <div class="count" v-else>{{ trace.length }} frames</div>
+      <select class="update-rate" v-model.number="updateIntervalMs" @change="restartFlushTimer" title="UI refresh rate">
+        <option :value="100">refresh 100ms</option>
+        <option :value="300">refresh 300ms</option>
+        <option :value="500">refresh 500ms</option>
+        <option :value="1000">refresh 1s</option>
+        <option :value="2000">refresh 2s</option>
+      </select>
+      <div class="checkbox-row" v-if="viewMode === 'log'">
+        <input type="checkbox" id="autoscroll" v-model="autoscroll">
+        <label for="autoscroll" style="width:auto">autoscroll</label>
+      </div>
+      <button class="secondary" @click="paused = !paused">{{ paused ? 'Resume' : 'Pause' }}</button>
+      <button class="secondary" @click="clearTrace">Clear</button>
+    </div>
+
+    <div class="trace-wrap" v-if="viewMode === 'live'">
+      <table class="trace">
+        <thead>
+          <tr>
+            <th>Bus</th><th>Dir</th><th>CAN ID</th><th>DLC</th><th>Data</th><th>ASCII</th><th>Count</th><th>&Delta;t</th><th>Last update</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="f in liveRowsSorted" :key="f.key" class="live-row" @click="onLiveRowClick(f)">
+            <td>CAN{{ f.bus }}</td>
+            <td><span :class="['dir-badge', 'dir-' + f.dir]">{{ (f.dir || 'rx').toUpperCase() }}</span></td>
+            <td><span class="canid">{{ f.canid }}</span><span class="ext-badge" v-if="f.extended">EXT</span></td>
+            <td>{{ f.dlc }}</td>
+            <td>{{ fmtData(f.data) }}</td>
+            <td class="ascii">{{ f.ascii }}</td>
+            <td>{{ f.count }}</td>
+            <td>{{ f.deltaMs !== null ? f.deltaMs + 'ms' : '' }}</td>
+            <td>{{ fmtTime(f.time) }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="empty" v-if="!liveRowsSorted.length" style="padding:14px">No frames yet.</div>
+    </div>
+
+    <div class="trace-wrap" ref="traceWrap" v-else>
+      <table class="trace">
+        <thead>
+          <tr>
+            <th>#</th><th>Time</th><th>Bus</th><th>Dir</th><th>CAN ID</th><th>DLC</th><th>Data</th><th>ASCII</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="f in trace" :key="f.seq">
+            <td>{{ f.seq }}</td>
+            <td>{{ fmtTime(f.time) }}</td>
+            <td>CAN{{ f.bus }}</td>
+            <td><span :class="['dir-badge', 'dir-' + f.dir]">{{ (f.dir || 'rx').toUpperCase() }}</span></td>
+            <td><span class="canid">{{ f.canid }}</span><span class="ext-badge" v-if="f.extended">EXT</span></td>
+            <td>{{ f.dlc }}</td>
+            <td>{{ fmtData(f.data) }}</td>
+            <td class="ascii">{{ f.ascii }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  </div>
+</main>
+
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
+
+createApp({
+  setup() {
+    const devices = ref(["simulator_v2", "simulator", "qs"]);
+    const buses = ref([]);
+    const trace = ref([]);
+    const wsConnected = ref(false);
+    const opening = ref(false);
+    const openError = ref("");
+    const sendError = ref("");
+    const sigSendError = ref("");
+    const paused = ref(false);
+    const autoscroll = ref(true);
+    const traceWrap = ref(null);
+    const MAX_TRACE = 3000;
+    const viewMode = ref("live");
+    const liveRows = reactive({});
+    const liveRowsSorted = computed(() =>
+      Object.values(liveRows).sort((a, b) => (a.bus - b.bus) || (parseInt(a.canid, 16) - parseInt(b.canid, 16)))
+    );
+
+    const openForm = reactive({ device: "simulator_v2", port: 0, baudrate: 500000 });
+    const sendForm = reactive({
+      busId: null, canid: "7E0", data: "1122334455667788", extended: false, periodMs: 0,
+    });
+    const sigSendForm = reactive({ busId: null, messageName: "", values: {}, periodMs: 0 });
+    const frameSendKey = ref(null);
+    const sigSendKey = ref(null);
+    const periodicSenders = ref([]);
+
+    // Auto Sweep: for the two instrument-cluster signals (metapp's
+    // speedometer/tachometer), ramp min->max->min instead of the fixed
+    // constant value "Send by Signal" above sends. Shares that panel's
+    // per-message periodic key, so this and manual periodic sends for the
+    // same message can't both be active -- starting one stops the other.
+    const sweeps = reactive({
+      Speed: { message: "Speed", signal: "VehicleSpeedRaw", min: 0, max: 200, step: 5, stepIntervalMs: 200, key: null },
+      TacoMeter: { message: "TacoMeter", signal: "EngineSpeedRaw", min: 800, max: 6000, step: 150, stepIntervalMs: 100, key: null },
+    });
+    const sweepError = ref("");
+
+    const dbcFiles = ref([]);
+    const openMsgs = reactive(new Set());
+    const allDbcMessages = computed(() => dbcFiles.value.flatMap((f) => f.messages));
+    const dbcNodes = computed(() => [...new Set(dbcFiles.value.flatMap((f) => f.nodes))]);
+    const sendEcu = ref("FMW_VCU");
+    const sendableMessages = computed(() => allDbcMessages.value.filter((m) => m.node === sendEcu.value));
+    const selectedSigMessage = computed(
+      () => allDbcMessages.value.find((m) => m.name === sigSendForm.messageName) || null
+    );
+    const liveByCanidHex = computed(() => {
+      const map = {};
+      for (const row of liveRowsSorted.value) map[row.canid] = row;
+      return map;
+    });
+
+    function signalBitPositions(sig) {
+      const size = sig.size;
+      if (sig.endian === "little") {
+        return Array.from({ length: size }, (_, i) => sig.start + i);
+      }
+      const positions = [];
+      let byteIdx = Math.floor(sig.start / 8);
+      let bitIdx = sig.start % 8;
+      for (let i = 0; i < size; i++) {
+        positions.push(byteIdx * 8 + bitIdx);
+        if (bitIdx === 0) { byteIdx++; bitIdx = 7; } else { bitIdx--; }
+      }
+      return positions.reverse();
+    }
+
+    function decodeSignals(msg, hexData) {
+      const bytes = (hexData.match(/.{1,2}/g) || []).map((h) => parseInt(h, 16));
+      let frameBits = 0n;
+      for (let i = 0; i < bytes.length; i++) frameBits |= BigInt(bytes[i]) << BigInt(i * 8);
+      const values = {};
+      for (const sig of msg.signals) {
+        let raw = 0n;
+        signalBitPositions(sig).forEach((pos, i) => {
+          if ((frameBits >> BigInt(pos)) & 1n) raw |= 1n << BigInt(i);
+        });
+        values[sig.name] = Number(raw) * sig.factor + sig.offset;
+      }
+      return values;
+    }
+
+    function formatSignalValue(msg, sig) {
+      const row = liveByCanidHex.value[msg.id.toString(16).toUpperCase()];
+      if (!row) return "";
+      const v = decodeSignals(msg, row.data)[sig.name];
+      if (v === undefined) return "";
+      return String(Math.round(v * 1000) / 1000);
+    }
+
+    function onLiveRowClick(f) {
+      const msg = allDbcMessages.value.find((m) => m.id === parseInt(f.canid, 16));
+      if (!msg) return;
+      openMsgs.add(msg.id);
+      nextTick(() => {
+        const el = document.getElementById("dbc-msg-" + msg.id);
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+      });
+    }
+
+    async function api(path, opts) {
+      const res = await fetch(path, opts);
+      if (!res.ok) {
+        let msg = res.statusText;
+        try { const j = await res.json(); msg = j.detail || msg; } catch (e) {}
+        throw new Error(msg);
+      }
+      if (res.status === 204) return null;
+      return res.json();
+    }
+
+    // null until the first response; the server owns the setting, so it is
+    // re-read periodically in case it was changed through the API.
+    const hvacEmulation = ref(null);
+    const hvacBusy = ref(false);
+    const hvacError = ref("");
+
+    async function loadHvacEmulation() {
+      try {
+        hvacEmulation.value = (await api("/api/hvac_emulation")).enabled;
+      } catch (e) { /* keep the previous value */ }
+    }
+
+    async function setHvacEmulation(enabled) {
+      hvacBusy.value = true;
+      hvacError.value = "";
+      try {
+        hvacEmulation.value = (await api("/api/hvac_emulation", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled }),
+        })).enabled;
+      } catch (e) {
+        hvacError.value = e.message;
+        await loadHvacEmulation();
+      } finally {
+        hvacBusy.value = false;
+      }
+    }
+
+    async function loadDevices() {
+      try {
+        const d = await api("/api/devices");
+        devices.value = d.devices;
+      } catch (e) {}
+    }
+
+    async function loadBuses() {
+      buses.value = await api("/api/buses");
+      if (buses.value.length && sendForm.busId === null) {
+        sendForm.busId = buses.value[0].id;
+      }
+      if (buses.value.length && sigSendForm.busId === null) {
+        sigSendForm.busId = buses.value[0].id;
+      }
+    }
+
+    async function loadDbc() {
+      try {
+        const d = await api("/api/dbc");
+        dbcFiles.value = d.files;
+        if (!dbcNodes.value.includes(sendEcu.value) && dbcNodes.value.length) {
+          sendEcu.value = dbcNodes.value[0];
+        }
+      } catch (e) {}
+    }
+
+    async function loadPeriodic() {
+      try {
+        periodicSenders.value = await api("/api/periodic");
+      } catch (e) {}
+      // A sweep's key stays in the list once held (frozen) rather than being
+      // removed -- see freeze_periodic on the server. Only count it as
+      // "still sweeping" (panel shows Hold Last Value / inputs locked) while
+      // its mode is still actually "sweep".
+      for (const s of Object.values(sweeps)) {
+        if (!s.key) continue;
+        const row = periodicSenders.value.find((p) => p.key === s.key);
+        if (!row || row.mode !== "sweep") s.key = null;
+      }
+    }
+
+    function toggleMsg(id) {
+      if (openMsgs.has(id)) openMsgs.delete(id);
+      else openMsgs.add(id);
+    }
+
+    function selectForSend(msg) {
+      sigSendForm.messageName = msg.name;
+      onSigMessageChange();
+    }
+
+    function onSigMessageChange() {
+      sigSendError.value = "";
+      const msg = selectedSigMessage.value;
+      if (msg) {
+        sigSendForm.values = currentSignalValues(msg);
+        sigSendForm.periodMs = msg.cycle_time || 0;
+      } else {
+        sigSendForm.values = {};
+      }
+    }
+
+    function onSendEcuChange() {
+      if (!sendableMessages.value.some((m) => m.name === sigSendForm.messageName)) {
+        sigSendForm.messageName = "";
+        sigSendForm.values = {};
+      }
+    }
+
+    function defaultSignalValues(msg) {
+      const values = {};
+      for (const sig of msg.signals) values[sig.name] = sig.min !== null ? sig.min : 0;
+      return values;
+    }
+
+    // Prefills a "Send by Signal" form (or a fresh default-cyclic send) with
+    // whatever is actually on the bus right now for this message, decoded
+    // from the live trace, instead of always resetting to the DBC's static
+    // min values -- otherwise switching the message dropdown back and forth,
+    // or reloading the page, made every signal you'd customized look like it
+    // had reverted even though the CAN payload itself hadn't changed.
+    function currentSignalValues(msg) {
+      const row = liveByCanidHex.value[msg.id.toString(16).toUpperCase()];
+      if (!row) return defaultSignalValues(msg);
+      const decoded = decodeSignals(msg, row.data);
+      const values = {};
+      for (const sig of msg.signals) {
+        const v = decoded[sig.name];
+        values[sig.name] = v !== undefined ? Math.round(v * 1000) / 1000 : (sig.min !== null ? sig.min : 0);
+      }
+      return values;
+    }
+
+    async function startEcuDefaults(busId) {
+      if (busId === null || busId === undefined) return; // busId can legitimately be 0
+      // Only establish a baseline send for messages with nothing running yet
+      // -- a message that's already fixed/sweeping/held (from before a page
+      // reload, or from opening a bus that was already open) must not be
+      // clobbered back to defaults just because this ran again.
+      const activeLabels = new Set(
+        periodicSenders.value.filter((p) => p.bus === busId).map((p) => p.label)
+      );
+      for (const m of sendableMessages.value) {
+        if (activeLabels.has(m.name)) continue;
+        try {
+          const res = await api("/api/buses/" + busId + "/periodic/signals", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: m.name,
+              signals: defaultSignalValues(m),
+              period_ms: m.cycle_time || 100,
+            }),
+          });
+          if (m.name === sigSendForm.messageName) sigSendKey.value = res.key;
+        } catch (e) {}
+      }
+      await loadPeriodic();
+    }
+
+    async function sendBySignal() {
+      sigSendError.value = "";
+      if (sigSendForm.busId === null || !sigSendForm.messageName) return;
+      const periodic = sigSendForm.periodMs > 0;
+      const path = "/api/buses/" + sigSendForm.busId + (periodic ? "/periodic/signals" : "/send_signals");
+      const body = { message: sigSendForm.messageName, signals: sigSendForm.values };
+      if (periodic) body.period_ms = sigSendForm.periodMs;
+      try {
+        const res = await api(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (periodic) {
+          sigSendKey.value = res.key;
+          await loadPeriodic();
+        }
+      } catch (e) {
+        sigSendError.value = e.message;
+      }
+    }
+
+    function liveSweepValue(s) {
+      const msg = allDbcMessages.value.find((m) => m.name === s.message);
+      const sig = msg && msg.signals.find((sg) => sg.name === s.signal);
+      if (!msg || !sig) return "";
+      const v = formatSignalValue(msg, sig);
+      return v === "" ? "" : v + (sig.unit ? " " + sig.unit : "");
+    }
+
+    async function startSweep(s) {
+      sweepError.value = "";
+      if (sigSendForm.busId === null) return;
+      try {
+        const res = await api("/api/buses/" + sigSendForm.busId + "/periodic/sweep", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: s.message, signal: s.signal,
+            min: s.min, max: s.max, step: s.step, step_interval_ms: s.stepIntervalMs,
+          }),
+        });
+        s.key = res.key;
+        await loadPeriodic();
+      } catch (e) {
+        sweepError.value = e.message;
+      }
+    }
+
+    async function stopSweep(s) {
+      if (s.key) await stopPeriodic(s.key);
+      s.key = null;
+    }
+
+    async function openBus() {
+      opening.value = true;
+      openError.value = "";
+      try {
+        const bus = await api("/api/buses", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(openForm),
+        });
+        await loadBuses();
+        if (sigSendForm.busId === null) sigSendForm.busId = bus.id;
+        await startEcuDefaults(bus.id);
+      } catch (e) {
+        openError.value = e.message;
+      } finally {
+        opening.value = false;
+      }
+    }
+
+    async function closeBus(id) {
+      try {
+        await api("/api/buses/" + id, { method: "DELETE" });
+        await loadBuses();
+      } catch (e) {
+        openError.value = e.message;
+      }
+    }
+
+    async function sendFrame() {
+      sendError.value = "";
+      if (sendForm.busId === null) return;
+      const periodic = sendForm.periodMs > 0;
+      const path = "/api/buses/" + sendForm.busId + (periodic ? "/periodic/frame" : "/send");
+      const body = { canid: sendForm.canid, data: sendForm.data, extended: sendForm.extended };
+      if (periodic) body.period_ms = sendForm.periodMs;
+      try {
+        const res = await api(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (periodic) {
+          frameSendKey.value = res.key;
+          await loadPeriodic();
+        }
+      } catch (e) {
+        sendError.value = e.message;
+      }
+    }
+
+    async function stopPeriodic(key) {
+      try {
+        await api("/api/periodic/" + encodeURIComponent(key), { method: "DELETE" });
+      } catch (e) {}
+      if (frameSendKey.value === key) frameSendKey.value = null;
+      if (sigSendKey.value === key) sigSendKey.value = null;
+      await loadPeriodic();
+    }
+
+    async function clearTrace() {
+      trace.value = [];
+      for (const k of Object.keys(liveRows)) delete liveRows[k];
+      pendingByKey = {};
+      pendingTrace = [];
+      try { await api("/api/trace", { method: "DELETE" }); } catch (e) {}
+    }
+
+    function fmtData(hex) {
+      return (hex.match(/.{1,2}/g) || []).join(" ");
+    }
+    function fmtTime(t) {
+      const d = new Date(t * 1000);
+      return d.toLocaleTimeString() + "." + String(d.getMilliseconds()).padStart(3, "0");
+    }
+
+    function updateLiveRow(f) {
+      const key = f.bus + ":" + f.canid;
+      const prev = liveRows[key];
+      liveRows[key] = {
+        key, bus: f.bus, dir: f.dir, canid: f.canid, extended: f.extended,
+        dlc: f.dlc, data: f.data, ascii: f.ascii, time: f.time,
+        count: prev ? prev.count + 1 : 1,
+        deltaMs: prev ? Math.round((f.time - prev.time) * 1000) : null,
+      };
+    }
+
+    // Frames arrive over the WS as fast as the bus produces them (can easily be 100+/s with a
+    // few cyclic senders running), but the UI only needs to look current, not repaint on every
+    // single one - re-rendering Vue's reactive state that often is what was making the tab
+    // heavy. Incoming frames are instead buffered in plain (non-reactive) JS objects/arrays and
+    // only committed to the reactive liveRows/trace state on a timer, at updateIntervalMs.
+    let pendingByKey = {};
+    let pendingTrace = [];
+
+    function bufferFrame(f) {
+      if (paused.value) return;
+      const key = f.bus + ":" + f.canid;
+      const prevCount = pendingByKey[key] ? pendingByKey[key].count : (liveRows[key] ? liveRows[key].count : 0);
+      const prevTime = pendingByKey[key] ? pendingByKey[key].time : (liveRows[key] ? liveRows[key].time : null);
+      pendingByKey[key] = {
+        key, bus: f.bus, dir: f.dir, canid: f.canid, extended: f.extended,
+        dlc: f.dlc, data: f.data, ascii: f.ascii, time: f.time,
+        count: prevCount + 1,
+        deltaMs: prevTime !== null ? Math.round((f.time - prevTime) * 1000) : null,
+      };
+      pendingTrace.push(f);
+    }
+
+    function flushPending() {
+      const keys = Object.keys(pendingByKey);
+      if (!keys.length) return;
+      for (const key of keys) liveRows[key] = pendingByKey[key];
+      pendingByKey = {};
+      if (pendingTrace.length) {
+        trace.value.push(...pendingTrace);
+        pendingTrace = [];
+        if (trace.value.length > MAX_TRACE) {
+          trace.value.splice(0, trace.value.length - MAX_TRACE);
+        }
+        if (autoscroll.value && viewMode.value === "log") {
+          nextTick(() => {
+            const el = traceWrap.value;
+            if (el) el.scrollTop = el.scrollHeight;
+          });
+        }
+      }
+    }
+
+    const updateIntervalMs = ref(300);
+    let flushTimer = null;
+    function restartFlushTimer() {
+      if (flushTimer) clearInterval(flushTimer);
+      flushTimer = setInterval(flushPending, updateIntervalMs.value);
+    }
+
+    let ws;
+    function connectWs() {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      ws = new WebSocket(proto + "://" + location.host + "/ws");
+      ws.onopen = () => { wsConnected.value = true; };
+      ws.onclose = () => { wsConnected.value = false; setTimeout(connectWs, 1000); };
+      ws.onerror = () => { ws.close(); };
+      ws.onmessage = (ev) => {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === "frame") bufferFrame(msg.data);
+      };
+    }
+
+    onMounted(async () => {
+      await loadDevices();
+      await loadBuses();
+      await loadDbc();
+      await loadPeriodic();
+      await loadHvacEmulation();
+      // ensure the default cyclic traffic is running even when the page is just reloaded
+      // against a bus that was already open from an earlier session, not only right after
+      // clicking "Open" - startEcuDefaults()/start_periodic is idempotent either way.
+      for (const b of buses.value) {
+        await startEcuDefaults(b.id);
+      }
+      const hist = await api("/api/trace?limit=200");
+      trace.value = hist;
+      for (const f of hist) updateLiveRow(f);
+      connectWs();
+      restartFlushTimer();
+      setInterval(loadBuses, 5000);
+      setInterval(loadPeriodic, 5000);
+      setInterval(loadHvacEmulation, 5000);
+    });
+
+    return {
+      devices, buses, trace, wsConnected, opening, openError, sendError, sigSendError,
+      paused, autoscroll, traceWrap, openForm, sendForm, sigSendForm,
+      dbcFiles, openMsgs, allDbcMessages, selectedSigMessage,
+      dbcNodes, sendEcu, sendableMessages,
+      frameSendKey, sigSendKey, periodicSenders,
+      hvacEmulation, hvacBusy, hvacError, setHvacEmulation,
+      sweeps, sweepError, startSweep, stopSweep, liveSweepValue,
+      viewMode, liveRowsSorted, updateIntervalMs,
+      openBus, closeBus, sendFrame, clearTrace, fmtData, fmtTime,
+      toggleMsg, selectForSend, onSigMessageChange, sendBySignal, stopPeriodic,
+      onSendEcuChange, startEcuDefaults, onLiveRowClick, formatSignalValue, restartFlushTimer,
+    };
+  }
+}).mount("#app");
+</script>
+</body>
+</html>

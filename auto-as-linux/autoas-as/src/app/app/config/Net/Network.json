@@ -1,0 +1,176 @@
+{
+  "AntiTest": true,
+  "class": "Net",
+  "Modules": [
+    {
+      "name": "DoIp",
+      "class": "DoIp",
+      "discovery": "224.244.224.245:13400",
+      "EnableTLS": false,
+      "max_connections": 3,
+      "targets": [
+        {
+          "name": "P2P",
+          "address": "0xdead"
+        },
+        {
+          "name": "GW_P2P",
+          "address": "0xcaaa"
+        },
+        {
+          "name": "GW_P2A",
+          "address": "0xcaab",
+          "nodes": [
+            { "name": "GW_P2A0", "address": "0xcaa0" },
+            { "name": "GW_P2A1", "address": "0xcaa1" }
+          ]
+        }
+      ],
+      "routines": [
+        {
+          "name": "default",
+          "number": "0x00",
+          "targets": [
+            "P2P",
+            "GW_P2P",
+            "GW_P2A"
+          ]
+        }
+      ],
+      "testers": [
+        {
+          "name": "default",
+          "address": "0xbeef",
+          "routines": [
+            "default"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SomeIp",
+      "class": "SomeIp",
+      "SD": {
+        "hostname": "ssas",
+        "multicast": "224.244.224.245"
+      },
+      "structs": [
+        {
+          "name": "Message",
+          "data": [
+            { "name": "buffer", "type": "uint8_n", "size": 2048, "variable_array": true }
+          ]
+        }
+      ],
+      "args": [
+        { "name": "common-args", "args": [ { "name": "message", "type": "Message" } ] }
+      ],
+      "servers": [
+        {
+          "name": "Service0",
+          "service": "0x1000",
+          "instance": "0x1000",
+          "clientId": "0x1000",
+          "unreliable": "30560",
+          "methods": [
+            {
+              "name": "Method0",
+              "methodId": "0x1000",
+              "tp": true,
+              "args": "common-args",
+              "return": "Message",
+              "version": "0"
+            },
+            {
+              "name": "Method2",
+              "methodId": "0x1002",
+              "tp": true,
+              "args": "common-args",
+              "return": "Message",
+              "version": "0"
+            }
+          ],
+          "event-groups": [
+            {
+              "name": "EventGroup0",
+              "groupId": "0x8000",
+              "enable_multicast": false,
+              "events": [
+                {
+                  "name": "Event0",
+                  "eventId": "0x8000",
+                  "type": "Message",
+                  "tp": true,
+                  "TxMaxSize": 2048,
+                  "version": "0"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "clients": [
+        {
+          "name": "Service1",
+          "service": "0x1001",
+          "instance": "0x1001",
+          "clientId": "0x1001",
+          "unreliable": "30568",
+          "methods": [
+            {
+              "name": "Method1",
+              "methodId": "0x1001",
+              "args": "common-args",
+              "return": "Message",
+              "tp": true,
+              "TxMaxSize": 2048,
+              "RxMaxSize": 2048,
+              "version": "0"
+            }
+          ],
+          "event-groups": [
+            {
+              "name": "EventGroup1",
+              "groupId": "0x8001",
+              "enable_multicast": false,
+              "events": [
+                {
+                  "name": "Event1",
+                  "eventId": "0x8001",
+                  "type": "Message",
+                  "tp": true,
+                  "TxMaxSize": 2048,
+                  "version": "0"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SoAd",
+      "class": "SoAd",
+      "sockets": [
+        {
+          "name": "UDPNM_CHL0",
+          "type": "server",
+          "server": "224.244.224.245:12345",
+          "protocol": "UDP",
+          "multicast": true,
+          "up": "UdpNm",
+          "RxPduId": "UDPNM_RX_PID_CHL0",
+          "AutomaticSoConSetup": true
+        },
+        {
+          "name": "MIRROR_CLIENT_0",
+          "client": "224.244.224.245:30511",
+          "protocol": "UDP",
+          "multicast": true,
+          "up": "Mirror",
+          "RxPduId": "0"
+        }
+      ]
+    }
+  ]
+}

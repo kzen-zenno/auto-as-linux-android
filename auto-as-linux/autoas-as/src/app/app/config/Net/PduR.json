@@ -1,0 +1,54 @@
+{
+  "class": "PduR",
+  "routines" : [
+    {
+      "name": "P2P_RX",
+      "from": "DoIP",
+      "to": "Dcm"
+    },
+    {
+      "name": "P2P_TX",
+      "from": "Dcm",
+      "to": "DoIP"
+    },
+    {
+      "name": "GW_P2P_RX",
+      "from": "DoIP",
+      "to": "CanTp"
+    },
+    {
+      "name": "GW_P2P_TX",
+      "from": "CanTp",
+      "to": "DoIP"
+    },
+    {
+      "name": "GW_P2A_RX",
+      "from": "DoIP",
+      "to": "CanTp",
+      "dest": "GW_P2A0_RX",
+      "destinations": [{ "to": "CanTp", "name": "GW_P2A1_RX" }],
+      "DestBuffer": "P2A"
+    },
+    {
+      "name": "GW_P2A0_TX",
+      "from": "CanTp",
+      "to": "DoIP"
+    },
+    {
+      "name": "GW_P2A1_TX",
+      "from": "CanTp",
+      "to": "DoIP"
+    },
+    {
+      "name": "MIRROR_TX",
+      "from": "Mirror",
+      "to": "CanIf"
+    }
+  ],
+  "buffers": [ {"name": "P2A", "size": 4096} ],
+  "memory": [
+    { "name": "large", "size": 4096, "number": 2 },
+    { "name": "middle", "size": 1400, "number": 8 },
+    { "name": "small", "size": 128, "number": 32 }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "_comment": "kuksa-someip-provider's VehicleState client (SWARCH-001 §2). vsomeip parses JSON strictly and ignores unknown keys; \"_comment\" fields below are documentation only, never read by vsomeip.",
+  "unicast": "172.30.0.13",
+  "netmask": "255.255.255.0",
+
+  "logging": {
+    "level": "debug",
+    "console": "true"
+  },
+
+  "applications": [
+    {
+      "name": "vehicle_state_provider",
+      "id": "0x1416"
+    }
+  ],
+
+  "services": [
+    {
+      "_comment": "Remote VehicleStateService (SYS-002 §3.1, offered by vehicle-state-server). unicast/reliable here must match vehicle-state-server/config/vsomeip.json's own unicast and port exactly, since this is how the client locates it.",
+      "service": "0x1770",
+      "instance": "0x0001",
+      "unicast": "172.30.0.12",
+      "reliable": 30512,
+      "events": [
+        {
+          "_comment": "EvVehicleState, SYS-002 §4.2. is_field is a static vsomeip hint; someip_client.cc's init_event_service() passes ET_FIELD explicitly on request_event(), which is authoritative here.",
+          "event": "0x8001",
+          "is_field": "false"
+        }
+      ],
+      "eventgroups": [
+        {
+          "_comment": "EventGroupVehicleState, SYS-002 §4.2. is_multicast=false because SYS-002 §5.1 requires TCP-only delivery; no UDP/multicast event endpoint is configured.",
+          "eventgroup": "0x0001",
+          "is_multicast": "false",
+          "events": [ "0x8001" ]
+        }
+      ]
+    }
+  ],
+
+  "routing": "vehicle_state_provider",
+
+  "service-discovery": {
+    "_comment": "No explicit ttl here (unlike vehicle-state-server's): SWARCH-002 §7's TTL requirement is scoped to the offering side's OFFER entries (SYS-002 §5). This client only sends FIND/SUBSCRIBE entries, so it relies on the vsomeip stack default. cyclic_offer_delay is set explicitly because vsomeip also uses it (at 110%) as this client's own 'have I heard any multicast SD traffic lately' watchdog (service_discovery_impl::on_last_msg_received_timer_expired) -- the vsomeip default (~1000ms, i.e. a 1100ms watchdog) is shorter than autoas-as's native Sd stack's own OfferCyclicDelay (3000ms, Sd_ServerTimerDefault in autoas-as/src/infras/communication/SomeIp/SomeIp.c), so the watchdog fired continuously and vsomeip kept leaving/rejoining the multicast group without ever settling long enough to complete a subscription (autoas-as/src/app/fmw/README.md section 11.3). 4000ms gives margin above that 3000ms cadence.",
+    "enable": true,
+    "multicast": "224.244.224.245",
+    "port": "30490",
+    "protocol": "udp",
+    "cyclic_offer_delay": "4000"
+  }
+}

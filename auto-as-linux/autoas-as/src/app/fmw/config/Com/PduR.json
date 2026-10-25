@@ -1,0 +1,20 @@
+{
+  "class": "PduR",
+  "routines": [
+    { "name": "CAN0_SPEED_RX", "from": "CanIf", "to": "Com" },
+    { "name": "CAN0_TACO_METER_RX", "from": "CanIf", "to": "Com" },
+    { "name": "CAN0_AIRCON_RX", "from": "CanIf", "to": "Com" },
+    { "name": "CAN0_AIRCON_COMMAND_TX", "from": "Com", "to": "CanIf" },
+    { "name": "CAN0_REVERSE_RX", "from": "CanIf", "to": "Com" },
+    { "name": "CAN0_PARKING_BRAKE_RX", "from": "CanIf", "to": "Com" },
+    { "name": "CAN0_ESC_RX", "from": "CanIf", "to": "Com" },
+    { "name": "CAN0_ABS_RX", "from": "CanIf", "to": "Com" },
+    { "name": "CAN0_SEATBELT_RX", "from": "CanIf", "to": "Com" },
+    { "name": "CAN0_DOOR_OPEN_RX", "from": "CanIf", "to": "Com" },
+    { "name": "CAN0_AIRBAG_RX", "from": "CanIf", "to": "Com" },
+    { "name": "CAN0_LOW_FUEL_RX", "from": "CanIf", "to": "Com" }
+  ],
+  "memory": [
+    { "name": "middle", "size": 64, "number": 2 }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "class": "CanIf",
+  "networks": [
+    {
+      "name": "CAN0",
+      "RxPdus": [
+        { "name": "GW_P2P_RX", "id": "0x732", "hoh": 0, "up": "CanTp" },
+        { "name": "GW_P2A0_RX", "id": "0x7D0", "hoh": 0, "up": "CanTp" },
+        { "name": "GW_P2A1_RX", "id": "0x7D1", "hoh": 0, "up": "CanTp" }
+      ],
+      "TxPdus": [
+        { "name": "GW_P2P_TX", "id": "0x731", "hoh": 0, "up": "CanTp" },
+        { "name": "GW_P2A0_TX", "id": "0x7E0", "hoh": 0, "up": "CanTp" },
+        { "name": "GW_P2A1_TX", "id": "0x7E1", "hoh": 0, "up": "CanTp" }
+      ]
+    },
+    {
+      "name": "CAN2",
+      "me": "AS",
+      "RxPdus": [],
+      "TxPdus": [
+        { "name": "MIRROR_TX", "id": "0x300", "dynamic": true, "hoh": 2, "up": "PduR" }
+      ]
+    }
+  ]
+}

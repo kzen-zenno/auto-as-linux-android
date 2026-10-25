@@ -1,0 +1,52 @@
+{
+  "_comment": "VehicleStateService Gateway-ECU simulator (SWARCH-002 §1). vsomeip parses JSON strictly and ignores unknown keys; \"_comment\" fields below are documentation only, never read by vsomeip.",
+  "unicast": "172.30.0.12",
+  "netmask": "255.255.255.0",
+
+  "logging": {
+    "level": "debug",
+    "console": "true"
+  },
+
+  "applications": [
+    {
+      "name": "vehicle_state_server",
+      "id": "0x1415"
+    }
+  ],
+
+  "services": [
+    {
+      "_comment": "SYS-002 §3.1: Service 0x1770, Instance 0x0001, TCP-only. The 30512 TCP port is a deployment-level choice not pinned by SYS-002; see SWARCH-002 §2.",
+      "service": "0x1770",
+      "instance": "0x0001",
+      "reliable": 30512,
+      "events": [
+        {
+          "_comment": "EvVehicleState, SYS-002 §4.2. is_field is a static vsomeip hint; the actual event type (ET_FIELD) is set programmatically in vehicle_state_service.cc's offer_event() call, which is authoritative here.",
+          "event": "0x8001",
+          "is_field": "false"
+        }
+      ],
+      "eventgroups": [
+        {
+          "_comment": "EventGroupVehicleState, SYS-002 §4.2. is_multicast=false because SYS-002 §5.1 requires TCP-only delivery; no UDP/multicast event endpoint is configured.",
+          "eventgroup": "0x0001",
+          "is_multicast": "false",
+          "events": [ "0x8001" ]
+        }
+      ]
+    }
+  ],
+
+  "routing": "vehicle_state_server",
+
+  "service-discovery": {
+    "_comment": "SYS-002 §5: SD TTL defaults to twice the event cycle (200 ms for the 100 ms EvVehicleState cycle). The SOME/IP-SD TTL field is a whole-seconds count, so this rounds up to 1. Set explicitly per SWARCH-002 §7 rather than relying on the vsomeip stack default (0xFFFFFF, effectively unlimited).",
+    "enable": true,
+    "multicast": "224.244.224.245",
+    "port": "30490",
+    "protocol": "udp",
+    "ttl": 1
+  }
+}

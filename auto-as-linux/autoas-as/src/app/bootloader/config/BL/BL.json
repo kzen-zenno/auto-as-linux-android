@@ -1,0 +1,19 @@
+{
+  "class": "BL",
+  "general": {
+    "BL_USE_CRC_32": true,
+    "BL_USE_APP_INFO": true,
+    "BL_USE_APP_INFO_V2": true,
+    "BL_USE_META": true,
+    "BL_USE_AB": true,
+    "BL_USE_AB_ACTIVE_BASED_ON_META_ROLLING_COUNTER": true,
+    "BL_USE_AB_UPDATE_ACTIVE": true,
+    "ROD_NUMBER_APP_VERSION": 0,
+    "ROD_NUMBER_PROGRAM_DEPENDENCY": 1
+  },
+  "memory": {
+    "FlashDriver": { "address": "0", "size": "2048" },
+    "FlashA": [ { "address": "4 * 1024", "size": "1 * 1024 * 1024 - 4 * 1024", "sectorSize": 512 } ],
+    "FlashB": [ { "address": "1 * 1024 * 1024", "size": "1 * 1024 * 1024", "sectorSize": 512 } ]
+  }
+}

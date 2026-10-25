@@ -1,0 +1,44 @@
+{
+  "Vehicle": {
+    "type": "branch",
+    "description": "FMW (mini-CDC) overlay branch. Only the leaf datapoints below are registered with the databroker -- branches carry no state of their own (databroker/src/main.rs::read_metadata_file() calls add_entry() per leaf), so re-declaring Vehicle/Cabin/HVAC/... here does not conflict with vss_release_6.0.json when both files are passed to --vss.",
+    "children": {
+      "Cabin": {
+        "type": "branch",
+        "description": "All in-cabin components, including doors.",
+        "children": {
+          "HVAC": {
+            "type": "branch",
+            "description": "Climate control",
+            "children": {
+              "Station": {
+                "type": "branch",
+                "description": "HVAC for single station in the vehicle",
+                "children": {
+                  "Row1": {
+                    "type": "branch",
+                    "description": "HVAC for single station in the vehicle",
+                    "children": {
+                      "Driver": {
+                        "type": "branch",
+                        "description": "HVAC for single station in the vehicle",
+                        "children": {
+                          "IsDefrosting": {
+                            "type": "actuator",
+                            "datatype": "boolean",
+                            "description": "Driver-station defrost state. Non-standard FMW extension: VSS 6.0 has no defrost equivalent under Vehicle.Cabin.HVAC.* (SYS-005 section 5), so SOME/IP key 0x1009 Aircon Defrost (SYS-002 section 4.1) is exposed here. Declared as an actuator because SYS-002 lists 0x1009 in the writable key range 0x1006..0x100A, matching its sibling station nodes.",
+                            "comment": "Maps to CAN 0x323 Aircon byte0 bit1 (state) and CAN 0x526 AirconCommand byte3 bit1 / byte0 bit3 MM_Def_Cmd (write), per SYS-001."
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

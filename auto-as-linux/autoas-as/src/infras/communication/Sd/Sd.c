@@ -1,0 +1,2236 @@
+/**
+ * SSAS - Simple Smart Automotive Software
+ * Copyright (C) 2021 Parai Wang <parai@foxmail.com>
+ *
+ * ref: Specification of Service Discovery AUTOSAR CP Release 4.4.0
+ * AUTOSAR_PRS_SOMEIPServiceDiscoveryProtocol.pdf
+ * SOME/IP Service Discovery Protocol Specification AUTOSAR FO Release 1.3.0
+ */
+/* ================================ [ INCLUDES  ] ============================================== */
+#include "Sd.h"
+#include "Sd_Priv.h"
+#include "Std_Debug.h"
+#include "Sd_Cfg.h"
+#include "TcpIp.h"
+#include "Std_Critical.h"
+#include "mempool.h"
+
+#include <stdlib.h>
+#include <string.h>
+#ifdef USE_PCAP
+#include "pcap.h"
+#endif
+
+#include "Det.h"
+/* ================================ [ MACROS    ] ============================================== */
+#define AS_LOG_SD 0
+#define AS_LOG_SDI 0
+#define AS_LOG_SDE 3
+
+#ifdef USE_SD_CRITICAL
+#define sdEnterCritical() EnterCritical()
+#define sdExitCritical() ExitCritical();
+#else
+#define sdEnterCritical()
+#define sdExitCritical()
+#endif
+
+#define SD_SET(flag, mask)                                                                         \
+  do {                                                                                             \
+    sdEnterCritical();                                                                             \
+    flag |= (mask);                                                                                \
+    sdExitCritical();                                                                              \
+  } while (0)
+
+#define SD_CLEAR(flag, mask)                                                                       \
+  do {                                                                                             \
+    sdEnterCritical();                                                                             \
+    flag &= ~(mask);                                                                               \
+    sdExitCritical();                                                                              \
+  } while (0)
+
+#define SD_SET_CLEAR(flag, maskSet, maskClear)                                                     \
+  do {                                                                                             \
+    sdEnterCritical();                                                                             \
+    flag &= ~(maskClear);                                                                          \
+    flag |= (maskSet);                                                                             \
+    sdExitCritical();                                                                              \
+  } while (0)
+
+#define SD_FLG_STATE_REQUEST_ONLINE 0x01u
+#define SD_FLG_STATE_REQUEST_ONCE 0x02u
+
+/* For Service Service Offer */
+#define SD_FLG_PENDING_OFFER 0x04u
+#define SD_FLG_PENDING_STOP_OFFER 0x08u
+/* For Client Service Find */
+#define SD_FLG_PENDING_FIND 0x04u
+#define SD_FLG_PENDING_STOP_FIND 0x08u
+
+/* For Client Service Subscribe */
+#define SD_FLG_PENDING_SUBSCRIBE 0x04u
+#define SD_FLG_PENDING_STOP_SUBSCRIBE 0x08u
+
+/* For Server Service Subscribe */
+#define SD_FLG_PENDING_EVENT_GROUP_ACK 0x04u
+#define SD_FLG_EVENT_GROUP_SUBSCRIBED 0x80u
+#define SD_FLG_EVENT_GROUP_MULTICAST 0x10u
+#define SD_FLG_EVENT_GROUP_UNSUBSCRIBED 0x00u
+
+#define SD_FLG_LINK_UP 0x10u
+
+/* @SWS_SD_00151 */
+#define SD_REBOOT_FLAG 0x80u
+/* @SWS_SD_00152 */
+#define SD_UNICAST_FLAG 0x40u
+
+#define SD_FLAG_MASK 0xC0u
+
+#define SD_CONFIG (sdConfigPtr)
+
+#define SD_FIND_SERVICE 0x00u
+#define SD_OFFER_SERVICE 0x01u
+
+#define SD_OPT_IP4_ENDPOINT 0x04u
+#define SD_OPT_IP4_MULTICAST 0x14u
+
+#define SD_SUBSCRIBE_EVENT_GROUP 0x06u
+#define SD_SUBSCRIBE_EVENT_GROUP_ACK 0x07u
+#define SD_SUBSCRIBE_EVENT_GROUP_NACK 0x07u
+
+#ifdef USE_PCAP
+#define PCAP_TRACE PCap_SD
+#else
+#define PCAP_TRACE(data, length, RemoteAddr, isRx)
+#endif
+
+/* SQP: SD Queue and Pool */
+#define DEF_SQP(T, size)                                                                           \
+  static Sd_##T##Type sd##T##Slots[size];                                                          \
+  static mempool_t sd##T##Pool;
+
+#define DEC_SQP(T)                                                                                 \
+  Sd_##T##Type *var;                                                                               \
+  Sd_##T##Type *next
+
+#define SQP_INIT(T)                                                                                \
+  do {                                                                                             \
+    mp_init(&sd##T##Pool, (uint8_t *)&sd##T##Slots, sizeof(Sd_##T##Type),                          \
+            ARRAY_SIZE(sd##T##Slots));                                                             \
+  } while (0)
+
+#define SQP_FIRST(T)                                                                               \
+  do {                                                                                             \
+    var = STAILQ_FIRST(&context->list##T##s);                                                      \
+  } while (0)
+
+#define SQP_NEXT()                                                                                 \
+  do {                                                                                             \
+    EnterCritical();                                                                               \
+    next = STAILQ_NEXT(var, entry);                                                                \
+    ExitCritical();                                                                                \
+  } while (0)
+
+#define SQP_WHILE(T)                                                                               \
+  SQP_FIRST(T);                                                                                    \
+  while (NULL != var) {                                                                            \
+    SQP_NEXT();
+
+#define SQP_WHILE_END()                                                                            \
+  var = next;                                                                                      \
+  }
+
+/* CRM: context RM */
+#define SQP_CRM_AND_FREE(T, var)                                                                   \
+  do {                                                                                             \
+    EnterCritical();                                                                               \
+    STAILQ_REMOVE(&context->list##T##s, var, Sd_##T##_s, entry);                                   \
+    ExitCritical();                                                                                \
+    (void)memset(var, 0u, sizeof(*var));                                                           \
+    mp_free(&sd##T##Pool, (uint8_t *)var);                                                         \
+  } while (0)
+
+/* LRM: list RM */
+#define SQP_LRM_AND_FREE(T, var)                                                                   \
+  do {                                                                                             \
+    EnterCritical();                                                                               \
+    STAILQ_REMOVE(list##T##s, var, Sd_##T##_s, entry);                                             \
+    ExitCritical();                                                                                \
+    (void)memset(var, 0u, sizeof(*var));                                                           \
+    mp_free(&sd##T##Pool, (uint8_t *)var);                                                         \
+  } while (0)
+
+/* Context Append & Prepend */
+#define SQP_CAPPEND(T, var)                                                                        \
+  do {                                                                                             \
+    EnterCritical();                                                                               \
+    STAILQ_INSERT_TAIL(&context->list##T##s, var, entry);                                          \
+    ExitCritical();                                                                                \
+  } while (0)
+
+#define SQP_CPREPEND(T, var)                                                                       \
+  do {                                                                                             \
+    EnterCritical();                                                                               \
+    STAILQ_INSERT_HEAD(&context->list##T##s, var, entry);                                          \
+    ExitCritical();                                                                                \
+  } while (0)
+
+/* List Append */
+#define SQP_LAPPEND(T, var)                                                                        \
+  do {                                                                                             \
+    EnterCritical();                                                                               \
+    STAILQ_INSERT_TAIL(list##T##s, var, entry);                                                    \
+    ExitCritical();                                                                                \
+  } while (0)
+
+#define SQP_LPREPEND(T, var)                                                                       \
+  do {                                                                                             \
+    EnterCritical();                                                                               \
+    STAILQ_INSERT_HEAD(list##T##s, var, entry);                                                    \
+    ExitCritical();                                                                                \
+  } while (0)
+
+#define SQP_ALLOC(T) (Sd_##T##Type *)mp_alloc(&sd##T##Pool)
+
+#define SQP_FREE(T, var)                                                                           \
+  do {                                                                                             \
+    (void)memset(var, 0u, sizeof(*var));                                                           \
+    mp_free(&sd##T##Pool, (uint8_t *)var);                                                         \
+  } while (0)
+
+#define SQP_CLEAR(T)                                                                               \
+  do {                                                                                             \
+    Sd_##T##Type *var;                                                                             \
+    EnterCritical();                                                                               \
+    var = STAILQ_FIRST(&context->list##T##s);                                                      \
+    while (NULL != var) {                                                                          \
+      STAILQ_REMOVE_HEAD(&context->list##T##s, entry);                                             \
+      mp_free(&sd##T##Pool, (uint8_t *)var);                                                       \
+      var = STAILQ_FIRST(&context->list##T##s);                                                    \
+    }                                                                                              \
+    ExitCritical();                                                                                \
+  } while (0)
+/* ================================ [ TYPES     ] ============================================== */
+typedef struct {
+  uint32_t length;
+  uint32_t lengthOfEntries;
+  uint32_t lengthOfOptions;
+  uint16_t sessionId;
+  uint8_t flags;
+} Sd_HeaderType;
+
+typedef struct {
+  uint32_t TTL;
+  uint32_t minor;
+  uint16_t serviceId;
+  uint16_t instanceId;
+  uint8_t major;
+} Sd_EntryType1Type;
+
+typedef struct {
+  uint32_t TTL;
+  uint16_t serviceId;
+  uint16_t instanceId;
+  uint8_t major;
+  uint8_t counter;
+  uint16_t eventGroupId;
+} Sd_EntryType2Type;
+
+typedef struct {
+  TcpIp_ProtocolType ProtocolType;
+  TcpIp_SockAddrType Addr;
+} Sd_OptionIPv4Type;
+/* ================================ [ DECLARES  ] ============================================== */
+extern const Sd_ConfigType Sd_Config;
+
+static void Sd_InitClientServiceConsumedEventGroups(const Sd_ClientServiceType *config,
+                                                    boolean soft);
+
+extern Std_ReturnType SomeIp_ResolveSubscriber(uint16_t ServiceId,
+                                               Sd_EventHandlerSubscriberType *sub);
+/* ================================ [ DATAS     ] ============================================== */
+DEF_SQP(EventHandlerSubscriber, SD_EVENT_HANDLER_SUBSCRIBER_POOL_SIZE)
+
+static const Sd_ConfigType *sdConfigPtr = NULL;
+/* ================================ [ LOCALS    ] ============================================== */
+static uint16_t Sd_RandTime(uint16_t min, uint16_t max) {
+  uint16_t ret;
+  uint16_t range = max - min + 1u;
+
+  ret = min + ((uint16_t)rand()) % range;
+
+  return ret;
+}
+
+static void Sd_BuildHeader(uint8_t *header, uint8_t flags, uint16_t sessionId,
+                           uint32_t lengthOfEntries, uint32_t lengthOfOptions) {
+  uint32_t length = 20u + lengthOfEntries + lengthOfOptions;
+
+  header[0] = 0xFFu;
+  header[1] = 0xFFu;
+  header[2] = 0x81u;
+  header[3] = 0x00u;
+
+  header[4] = (length >> 24) & 0xFFu;
+  header[5] = (length >> 16) & 0xFFu;
+  header[6] = (length >> 8) & 0xFFu;
+  header[7] = length & 0xFFu;
+
+  /* @SWS_SD_00033 clientId = 0x0000 */
+  header[8] = 0x00u;
+  header[9] = 0x00u;
+  header[10] = (sessionId >> 8) & 0xFFu;
+  header[11] = sessionId & 0xFFu;
+  header[12] = 0x01;                 /* Protocol Version */
+  header[13] = 0x01;                 /* Interface Version */
+  header[14] = 0x02;                 /* Message Type */
+  header[15] = 0x00u;                /* Return Code */
+  header[16] = flags & SD_FLAG_MASK; /* Flags */
+  header[17] = 0x00u;                /* Reserved */
+  header[18] = 0x00u;
+  header[19] = 0x00u;
+
+  header[20] = (lengthOfEntries >> 24) & 0xFFu;
+  header[21] = (lengthOfEntries >> 16) & 0xFFu;
+  header[22] = (lengthOfEntries >> 8) & 0xFFu;
+  header[23] = lengthOfEntries & 0xFFu;
+
+  header[24u + lengthOfEntries] = (lengthOfOptions >> 24) & 0xFFu;
+  header[25u + lengthOfEntries] = (lengthOfOptions >> 16) & 0xFFu;
+  header[26u + lengthOfEntries] = (lengthOfOptions >> 8) & 0xFFu;
+  header[27u + lengthOfEntries] = lengthOfOptions & 0xFFu;
+}
+
+static Std_ReturnType Sd_DecodeHeader(const uint8_t *data, uint32_t length, Sd_HeaderType *header) {
+  Std_ReturnType ret = E_OK;
+  if (length < 28u) {
+    ASLOG(SDE, ("malformed SD message\n"));
+    ret = E_NOT_OK;
+  }
+
+  if (E_OK == ret) {
+    if ((0xFFu != data[0]) || (0xFFu != data[1]) || (0x81u != data[2]) || (0x00u != data[3])) {
+      ASLOG(SDE, ("invalid SD message ID\n"));
+      ret = E_NOT_OK;
+    }
+  }
+
+  if (E_OK == ret) {
+    if ((0x00u != data[8]) || (0x00u != data[9])) {
+      ASLOG(SDE, ("invalid SD client ID\n"));
+      ret = E_NOT_OK;
+    }
+  }
+
+  if (E_OK == ret) {
+    if ((0x01u != data[12]) || (0x01u != data[13]) || (0x02u != data[14]) || (0x00u != data[15])) {
+      ASLOG(SDE, ("invalid SD version or type\n"));
+      ret = E_NOT_OK;
+    }
+  }
+
+  if (E_OK == ret) {
+    if ((0x00u != data[17]) || (0x00u != data[18]) || (0x00u != data[19])) {
+      ASLOG(SDE, ("invalid SD reserved\n"));
+      ret = E_NOT_OK;
+    }
+  }
+
+  if (E_OK == ret) {
+    header->sessionId = ((uint16_t)data[10] << 8) + data[11];
+    if (0u == header->sessionId) {
+      ASLOG(SDE, ("invalid session ID\n"));
+      ret = E_NOT_OK;
+    }
+  }
+
+  if (E_OK == ret) {
+    header->flags = data[16];
+    if (0x0u != (header->flags & (~SD_FLAG_MASK))) {
+      ASLOG(SDE, ("invalid flags\n"));
+      ret = E_NOT_OK;
+    }
+  }
+
+  if (E_OK == ret) {
+    header->length =
+      ((uint32_t)data[4] << 24) + ((uint32_t)data[5] << 16) + ((uint32_t)data[6] << 8) + data[7];
+    if ((header->length + 8u) == length) {
+      header->lengthOfEntries = ((uint32_t)data[20] << 24) + ((uint32_t)data[21] << 16) +
+                                ((uint32_t)data[22] << 8) + data[23];
+      if ((28u + header->lengthOfEntries) <= length) {
+        header->lengthOfOptions = ((uint32_t)data[24u + header->lengthOfEntries] << 24) +
+                                  ((uint32_t)data[25u + header->lengthOfEntries] << 16) +
+                                  ((uint32_t)data[26u + header->lengthOfEntries] << 8) +
+                                  data[27u + header->lengthOfEntries];
+        if ((28u + header->lengthOfEntries + header->lengthOfOptions) != length) {
+          ASLOG(SDE, ("invalid SD lengthOfOptions %d\n", header->lengthOfEntries));
+          ret = E_NOT_OK;
+        }
+      } else {
+        ASLOG(SDE, ("invalid SD lengthOfEntries %d\n", header->lengthOfEntries));
+        ret = E_NOT_OK;
+      }
+    } else {
+      ASLOG(SDE, ("invalid SD length %d\n", header->length));
+      ret = E_NOT_OK;
+    }
+  }
+
+  return ret;
+}
+
+static void Sd_BuildEntryType1(uint8_t *entry, uint8_t type, uint8_t indexOf1stOpt,
+                               uint8_t indexOf2ndOpt, uint8_t numOf1stOpt, uint8_t numOf2ndOpt,
+                               uint16_t serviceId, uint16_t instanceId, uint8_t majorVersion,
+                               uint32_t minorVersion, uint32_t TTL) {
+  /* @SWS_SD_00159 */
+  entry[0] = type;
+  entry[1] = indexOf1stOpt;
+  entry[2] = indexOf2ndOpt;
+  entry[3] = ((numOf1stOpt << 4) & 0xF0u) | (numOf2ndOpt & 0x0Fu);
+  entry[4] = (serviceId >> 8) & 0xFFu;
+  entry[5] = serviceId & 0xFFu;
+  entry[6] = (instanceId >> 8) & 0xFFu;
+  entry[7] = instanceId & 0xFFu;
+  entry[8] = majorVersion;
+  /* @SWS_SD_00180u, @SWS_SD_00299: 0 for stop offer */
+  entry[9] = (TTL >> 16) & 0xFFu;
+  entry[10] = (TTL >> 8) & 0xFFu;
+  entry[11] = TTL & 0xFFu;
+  entry[12] = (minorVersion >> 24) & 0xFFu;
+  entry[13] = (minorVersion >> 16) & 0xFFu;
+  entry[14] = (minorVersion >> 8) & 0xFFu;
+  entry[15] = minorVersion & 0xFFu;
+}
+
+static void Sd_BuildEntryType2(uint8_t *entry, uint8_t type, uint8_t indexOf1stOpt,
+                               uint8_t indexOf2ndOpt, uint8_t numOf1stOpt, uint8_t numOf2ndOpt,
+                               uint16_t serviceId, uint16_t instanceId, uint8_t majorVersion,
+                               uint8_t counter, uint16_t evnetGroupId, uint32_t TTL) {
+  entry[0] = type;
+  entry[1] = indexOf1stOpt;
+  entry[2] = indexOf2ndOpt;
+  entry[3] = ((numOf1stOpt << 4) & 0xF0u) | (numOf2ndOpt & 0x0Fu);
+  entry[4] = (serviceId >> 8) & 0xFFu;
+  entry[5] = serviceId & 0xFFu;
+  entry[6] = (instanceId >> 8) & 0xFFu;
+  entry[7] = instanceId & 0xFFu;
+  entry[8] = majorVersion;
+  entry[9] = (TTL >> 16) & 0xFFu;
+  entry[10] = (TTL >> 8) & 0xFFu;
+  entry[11] = TTL & 0xFFu;
+  entry[12] = 0u;
+  entry[13] = counter & 0x0Fu;
+  entry[14] = (evnetGroupId >> 8) & 0xFFu;
+  entry[15] = evnetGroupId & 0xFFu;
+}
+
+static void Sd_BuildOptionIPv4(uint8_t *option, uint8_t type,
+                               const TcpIp_SockAddrType *LocalAddrPtr,
+                               TcpIp_ProtocolType ProtocolType) {
+  option[0] = 0x00u; /* length = 9 */
+  option[1] = 0x09;
+  option[2] = type;                  /* type */
+  option[3] = 0x00u;                 /* reserved */
+  option[4] = LocalAddrPtr->addr[0]; /* IPv4 addr */
+  option[5] = LocalAddrPtr->addr[1];
+  option[6] = LocalAddrPtr->addr[2];
+  option[7] = LocalAddrPtr->addr[3];
+  option[8] = 0x00u;        /* reserved */
+  option[9] = ProtocolType; /* L4 Proto */
+  option[10] = (LocalAddrPtr->port >> 8) & 0xFFu;
+  option[11] = LocalAddrPtr->port & 0xFFu;
+}
+
+static void Sd_BuildOptionIPv4Endpoint(uint8_t *option, const TcpIp_SockAddrType *LocalAddrPtr,
+                                       TcpIp_ProtocolType ProtocolType) {
+  Sd_BuildOptionIPv4(option, SD_OPT_IP4_ENDPOINT, LocalAddrPtr, ProtocolType);
+}
+
+static void Sd_BuildOptionIPv4Multicast(uint8_t *option, const TcpIp_SockAddrType *LocalAddrPtr,
+                                        TcpIp_ProtocolType ProtocolType) {
+  Sd_BuildOptionIPv4(option, SD_OPT_IP4_MULTICAST, LocalAddrPtr, ProtocolType);
+}
+
+static Std_ReturnType Sd_DecodeIpV4Option(const uint8_t *od, uint8_t type,
+                                          Sd_OptionIPv4Type *ipv4Opt, uint8_t indexOf1stOpt,
+                                          uint8_t numOf1stOpt) {
+  Std_ReturnType ret = E_OK;
+  const uint8_t *opt = od;
+  uint16_t length;
+  boolean optFound = FALSE;
+  uint16_t i;
+
+  for (i = 0u; i < indexOf1stOpt; i++) { /* moving to the 1stOpt */
+    length = ((uint16_t)opt[0] << 8) + opt[1];
+    if ((SD_OPT_IP4_ENDPOINT == opt[2]) || (SD_OPT_IP4_MULTICAST == opt[2])) {
+      opt = &opt[length + 3u];
+      if (length != 9u) {
+        ASLOG(SDE, ("Invalid option length for ipv4 endpoint\n"));
+        ret = E_NOT_OK;
+      }
+    } else {
+      ret = E_NOT_OK;
+      ASLOG(SDE, ("TODO: unsupported option type %d\n", opt[2]));
+    }
+  }
+
+  for (i = 0u; (i < numOf1stOpt) && (E_OK == ret) && (FALSE == optFound); i++) {
+    length = ((uint16_t)opt[0] << 8) + opt[1];
+    if (type == opt[2]) {
+      ipv4Opt->ProtocolType = opt[9];
+      if ((TCPIP_IPPROTO_TCP == ipv4Opt->ProtocolType) ||
+          (TCPIP_IPPROTO_UDP == ipv4Opt->ProtocolType)) {
+        ipv4Opt->Addr.port = ((uint16_t)opt[10] << 8) + opt[11];
+        (void)memcpy(ipv4Opt->Addr.addr, &opt[4], 4);
+        optFound = TRUE;
+      } else {
+        ret = E_NOT_OK;
+        ASLOG(SDE, ("TODO: unsupported ipv4 endpoint protocol type %d\n", ipv4Opt->ProtocolType));
+      }
+    } else {
+      ret = E_NOT_OK;
+      ASLOG(SD, ("TODO: unsupported option type %d\n", opt[2]));
+    }
+  }
+
+  if (FALSE == optFound) {
+    ret = E_NOT_OK;
+  }
+
+  return ret;
+}
+
+static Std_ReturnType Sd_DecodeEntryType1OF(const uint8_t *ed, const uint8_t *od,
+                                            Sd_EntryType1Type *entry1, Sd_OptionIPv4Type *ipv4Opt) {
+  Std_ReturnType ret = E_OK;
+
+  entry1->serviceId = ((uint16_t)ed[4] << 8) + ed[5];
+  entry1->instanceId = ((uint16_t)ed[6] << 8) + ed[7];
+  entry1->major = ed[8];
+  entry1->TTL = ((uint32_t)ed[9] << 16) + ((uint32_t)ed[10] << 8) + ed[11];
+  entry1->minor =
+    ((uint32_t)ed[12] << 24) + ((uint32_t)ed[13] << 16) + ((uint32_t)ed[14] << 8) + ed[15];
+  if (ipv4Opt != NULL) { /* Offer Service, ipv4 endpoint must be provided */
+    ret = Sd_DecodeIpV4Option(od, SD_OPT_IP4_ENDPOINT, ipv4Opt, ed[1], (ed[3] >> 4));
+    if (E_OK != ret) {
+      ASLOG(SDE, ("ipv4 endpoint option not found for %04x:%04x\n", entry1->serviceId,
+                  entry1->instanceId));
+    } else {
+      ASLOG(SD, ("%sOffer Service %04x:%04x version %d.%d TTL %d s by %s %d.%d.%d.%d:%d\n",
+                 (0u == entry1->TTL) ? "Stop " : "", entry1->serviceId, entry1->instanceId,
+                 entry1->major, entry1->minor, entry1->TTL,
+                 (ipv4Opt->ProtocolType == TCPIP_IPPROTO_TCP) ? "TCP" : "UDP",
+                 ipv4Opt->Addr.addr[0], ipv4Opt->Addr.addr[1], ipv4Opt->Addr.addr[2],
+                 ipv4Opt->Addr.addr[3], ipv4Opt->Addr.port));
+    }
+  } else {
+    ASLOG(SD, ("Find Service %04x:%04x, version %d.%d\n", entry1->serviceId, entry1->instanceId,
+               entry1->major, entry1->minor));
+  }
+
+  return ret;
+}
+
+static Std_ReturnType Sd_DecodeEntryType2SEG(const uint8_t *ed, const uint8_t *od,
+                                             Sd_EntryType2Type *entry2,
+                                             Sd_OptionIPv4Type *ipv4Opt) {
+  Std_ReturnType ret = E_OK;
+
+  entry2->serviceId = ((uint16_t)ed[4] << 8) + ed[5];
+  entry2->instanceId = ((uint16_t)ed[6] << 8) + ed[7];
+  entry2->major = ed[8];
+  entry2->TTL = ((uint32_t)ed[9] << 16) + ((uint32_t)ed[10] << 8) + ed[11];
+  entry2->counter = ed[13] & 0x0Fu;
+  entry2->eventGroupId = ((uint16_t)ed[14] << 8) + ed[15];
+  ret = Sd_DecodeIpV4Option(od, SD_OPT_IP4_ENDPOINT, ipv4Opt, ed[1], (ed[3] >> 4));
+  if (E_OK != ret) {
+    ASLOG(SDE, ("ipv4 endpoint option not found for %04x:%04x:%04x\n", entry2->serviceId,
+                entry2->instanceId, entry2->eventGroupId));
+  } else {
+    ASLOG(SD, ("%sSubscribe Event Group %04x:%04x:%04x version %d TTL %d s by %s %d.%d.%d.%d:%d\n",
+               (0u == entry2->TTL) ? "Stop " : "", entry2->serviceId, entry2->instanceId,
+               entry2->eventGroupId, entry2->major, entry2->TTL,
+               (ipv4Opt->ProtocolType == TCPIP_IPPROTO_TCP) ? "TCP" : "UDP", ipv4Opt->Addr.addr[0],
+               ipv4Opt->Addr.addr[1], ipv4Opt->Addr.addr[2], ipv4Opt->Addr.addr[3],
+               ipv4Opt->Addr.port));
+  }
+
+  return ret;
+}
+
+static Std_ReturnType Sd_DecodeEntryType2SEGAck(const uint8_t *ed, const uint8_t *od,
+                                                Sd_EntryType2Type *entry2,
+                                                Sd_OptionIPv4Type *ipv4Opt) {
+  Std_ReturnType ret = E_OK;
+
+  entry2->serviceId = ((uint16_t)ed[4] << 8) + ed[5];
+  entry2->instanceId = ((uint16_t)ed[6] << 8) + ed[7];
+  entry2->major = ed[8];
+  entry2->TTL = ((uint32_t)ed[9] << 16) + ((uint32_t)ed[10] << 8) + ed[11];
+  entry2->counter = ed[13] & 0x0Fu;
+  entry2->eventGroupId = ((uint16_t)ed[14] << 8) + ed[15];
+  ret = Sd_DecodeIpV4Option(od, SD_OPT_IP4_MULTICAST, ipv4Opt, ed[1], (ed[3] >> 4));
+  if (E_OK != ret) {
+    ret = E_OK;
+    ASLOG(SD, ("Subscribe Event Group ACK %04x:%04x:%04x version %d TTL %d s\n", entry2->serviceId,
+               entry2->instanceId, entry2->eventGroupId, entry2->major, entry2->TTL));
+    (void)memset(ipv4Opt, 0u, sizeof(*ipv4Opt));
+  } else {
+    ASLOG(SD, ("Subscribe Event Group ACK %04x:%04x:%04x version %d TTL %d s with multicast %s "
+               "%d.%d.%d.%d:%d\n",
+               entry2->serviceId, entry2->instanceId, entry2->eventGroupId, entry2->major,
+               entry2->TTL, (ipv4Opt->ProtocolType == TCPIP_IPPROTO_TCP) ? "TCP" : "UDP",
+               ipv4Opt->Addr.addr[0], ipv4Opt->Addr.addr[1], ipv4Opt->Addr.addr[2],
+               ipv4Opt->Addr.addr[3], ipv4Opt->Addr.port));
+  }
+
+  return ret;
+}
+
+static Std_ReturnType Sd_Transmit(PduIdType TxPduId, uint8_t *data, uint32_t length,
+                                  const TcpIp_SockAddrType *RemoteAddr) {
+  Std_ReturnType ret;
+  PduInfoType pduInfo;
+
+  pduInfo.MetaDataPtr = (uint8_t *)RemoteAddr;
+  pduInfo.SduDataPtr = data;
+  pduInfo.SduLength = length;
+  ret = SoAd_IfTransmit(TxPduId, &pduInfo);
+  if (E_OK != ret) {
+    ASLOG(SDE, ("Tx Failed\n"));
+  } else {
+    PCAP_TRACE(data, length, RemoteAddr, FALSE);
+  }
+
+  return ret;
+}
+
+static Std_ReturnType Sd_HandleFindService(const Sd_InstanceType *Instance,
+                                           const TcpIp_SockAddrType *RemoteAddr,
+                                           const Sd_EntryType1Type *entry1) {
+  Std_ReturnType ret = E_NOT_OK;
+  uint16_t i;
+  TcpIp_SockAddrType LocalAddr;
+  const Sd_ServerServiceType *config;
+  Sd_ServerServiceContextType *context;
+
+  for (i = 0u; i < Instance->numOfServerServices; i++) {
+    config = &Instance->ServerServices[i];
+    context = config->context;
+    if ((config->ServiceId == entry1->serviceId) || (config->InstanceId == entry1->instanceId)) {
+      ret = E_OK;
+      break;
+    }
+  }
+
+  if (E_OK == ret) {
+    if ((config->MajorVersion != SD_ANY_MAJOR_VERSION) && (entry1->major != SD_ANY_MAJOR_VERSION) &&
+        (config->MajorVersion != entry1->major)) {
+      ASLOG(SDE, ("major version not matched: %u != %u\n", config->MajorVersion, entry1->major));
+      ret = E_NOT_OK;
+    } else if ((config->MinorVersion != SD_ANY_MINOR_VERSION) &&
+               (entry1->minor != SD_ANY_MINOR_VERSION) && (config->MinorVersion != entry1->minor)) {
+      ASLOG(SDE, ("minor version not matched: %du != %u\n", config->MinorVersion, entry1->minor));
+      ret = E_NOT_OK;
+    } else {
+      /* version okay */
+    }
+  }
+
+  if (E_OK == ret) {
+    if (SD_PHASE_INITIAL_WAIT == context->phase) {
+      /* @SWS_SD_00319 */
+      ret = E_NOT_OK;
+    }
+  }
+
+  if ((E_OK == ret) &&
+      ((SD_PHASE_DOWN != context->phase) || (context->flags & SD_FLG_STATE_REQUEST_ONLINE))) {
+    Sd_BuildEntryType1(&Instance->buffer[24u], SD_OFFER_SERVICE, 0u, 0u, 1u, 0u, config->ServiceId,
+                       config->InstanceId, config->MajorVersion, config->MinorVersion,
+                       config->ServerTimer->TTL);
+    (void)SoAd_GetLocalAddr(config->SoConId, &LocalAddr, NULL, NULL);
+    Sd_BuildOptionIPv4Endpoint(&Instance->buffer[44u], &LocalAddr, config->ProtocolType);
+    Sd_BuildHeader(Instance->buffer, Instance->context->flags,
+                   Instance->context->multicastSessionId, 16u, 12u);
+    if (1u == Instance->context->multicastSessionId) {
+      /* @SWS_SD_00034: the reboot flag is only valid on the very first SD
+       * message sent after (re)boot; clear it once that message has been
+       * built, not just on session ID wraparound (~54h at a 3s cadence) --
+       * see autoas-as/src/app/fmw/README.md section 11.3. */
+      Instance->context->flags &= ~SD_REBOOT_FLAG;
+    }
+    Instance->context->multicastSessionId++;
+    if (0u == Instance->context->multicastSessionId) {
+      Instance->context->multicastSessionId = 1u;
+    }
+    ret = Sd_Transmit(Instance->TxPdu.UnicastTxPduId, Instance->buffer, 56u, RemoteAddr);
+    if (E_OK != ret) {
+      ASLOG(SDE, ("response to find service failed\n"));
+    }
+  }
+
+  return ret;
+}
+
+static Std_ReturnType Sd_HandleOfferService(const Sd_InstanceType *Instance,
+                                            const TcpIp_SockAddrType *RemoteAddr,
+                                            Sd_HeaderType *header, const Sd_EntryType1Type *entry1,
+                                            const Sd_OptionIPv4Type *ipv4Opt) {
+  Std_ReturnType ret = E_NOT_OK;
+  uint16_t i;
+  int result;
+
+  const Sd_ClientServiceType *config;
+  Sd_ClientServiceContextType *context;
+  for (i = 0u; i < Instance->numOfClientServices; i++) {
+    config = &Instance->ClientServices[i];
+    context = config->context;
+    if ((config->ServiceId == entry1->serviceId) || (config->InstanceId == entry1->instanceId)) {
+      ret = E_OK;
+      break;
+    }
+  }
+
+  if (E_OK == ret) {
+    if ((config->MajorVersion != SD_ANY_MAJOR_VERSION) && (config->MajorVersion != entry1->major)) {
+      ASLOG(SDE, ("major version not matched\n"));
+      ret = E_NOT_OK;
+    } else if ((config->MinorVersion != SD_ANY_MINOR_VERSION) &&
+               (config->MinorVersion != entry1->minor)) {
+      ASLOG(SDE, ("minor version not matched\n"));
+      ret = E_NOT_OK;
+    } else {
+      /* version okay */
+    }
+  }
+
+  if (E_OK == ret) {
+    if (config->ProtocolType != ipv4Opt->ProtocolType) {
+      ASLOG(SDE, ("protocol not matched, expect %X, provide %X\n", config->ProtocolType,
+                  ipv4Opt->ProtocolType));
+      ret = E_NOT_OK;
+    }
+  }
+
+#if !defined(_WIN32)
+  if (E_OK == ret) {
+    result = memcmp(ipv4Opt->Addr.addr, RemoteAddr->addr, sizeof(RemoteAddr->addr));
+    if (0 != result) {
+      ASLOG(SDE, ("offer: ipv4 addr not matched\n"));
+      ret = E_NOT_OK;
+    }
+  }
+#endif
+
+  if (E_OK == ret) {
+    if (TRUE == context->isOffered) {
+      result = memcmp(&context->RemoteAddr, &ipv4Opt->Addr, sizeof(TcpIp_SockAddrType));
+      if (0 != result) {
+        ASLOG(SDE, ("Service %x:%x offer by %d.%d.%d.%d:%d again\n", config->ServiceId,
+                    config->InstanceId, ipv4Opt->Addr.addr[0], ipv4Opt->Addr.addr[1],
+                    ipv4Opt->Addr.addr[2], ipv4Opt->Addr.addr[3], ipv4Opt->Addr.port));
+        ret = E_NOT_OK;
+      }
+    }
+  }
+
+  if (E_OK == ret) {
+    if ((0x0u != context->sessionId) && (header->flags & SD_REBOOT_FLAG) &&
+        (header->sessionId <= context->sessionId)) {
+      ASLOG(SDE, ("%d.%d.%d.%d:%d reboot detected, session ID %d <= %d\n", ipv4Opt->Addr.addr[0],
+                  ipv4Opt->Addr.addr[1], ipv4Opt->Addr.addr[2], ipv4Opt->Addr.addr[3],
+                  ipv4Opt->Addr.port, header->sessionId, context->sessionId));
+      if (0u != (SD_FLG_LINK_UP & context->flags)) {
+        (void)SoAd_CloseSoCon(config->SoConId, TRUE);
+        SD_CLEAR(context->flags, SD_FLG_LINK_UP);
+        ASLOG(SDI, ("SOCK[%u] client service %x:-:%x link down\n", config->SoConId,
+                    config->ServiceId, config->InstanceId));
+      }
+      Sd_InitClientServiceConsumedEventGroups(config, TRUE);
+    }
+    context->sessionId = header->sessionId;
+  }
+  if (E_OK == ret) {
+    context->RemoteAddr = ipv4Opt->Addr;
+    context->port = RemoteAddr->port;
+    if (0u == entry1->TTL) {
+      context->isOffered = FALSE;
+      context->TTL = 0u;
+
+      Sd_InitClientServiceConsumedEventGroups(config, TRUE);
+    } else {
+      context->isOffered = TRUE;
+      if (DEFAULT_TTL != entry1->TTL) { /* @SWS_SD_00514 */
+        context->TTL = SD_CONVERT_MS_TO_MAIN_CYCLES(entry1->TTL * 1000u);
+      } else {
+        context->TTL = 0u; /* alive forever */
+      }
+    }
+  }
+  return ret;
+}
+
+static Std_ReturnType Sd_ResponseSubscribeEventGroup(const Sd_InstanceType *Instance,
+                                                     const Sd_ServerServiceType *config,
+                                                     const Sd_EventHandlerType *EventHandler,
+                                                     Sd_EventHandlerSubscriberType *sub) {
+#if (defined(_WIN32) || defined(linux)) && !defined(USE_LWIP)
+#else
+  TcpIp_SockAddrType RemoteAddr;
+#endif
+  uint32_t lengthOfOptions = 0u;
+  uint8_t numOf1stOpt = 0u;
+  if (sub->TxPduId == EventHandler->MulticastTxPduId) {
+    Sd_BuildOptionIPv4Multicast(&Instance->buffer[44], &EventHandler->MulticastEventAddr,
+                                TCPIP_IPPROTO_UDP);
+    lengthOfOptions = 12u;
+    numOf1stOpt = 1u;
+  }
+  Sd_BuildEntryType2(&Instance->buffer[24], SD_SUBSCRIBE_EVENT_GROUP_ACK, 0u, 0u, numOf1stOpt, 0u,
+                     config->ServiceId, config->InstanceId, config->MajorVersion, 0u,
+                     EventHandler->EventGroupId, config->ServerTimer->TTL);
+  Sd_BuildHeader(Instance->buffer, Instance->context->flags, Instance->context->multicastSessionId,
+                 16u, lengthOfOptions);
+  if (1u == Instance->context->multicastSessionId) {
+    /* @SWS_SD_00034, see the identical comment in Sd_ServerServiceFindServiceCheck(). */
+    Instance->context->flags &= ~SD_REBOOT_FLAG;
+  }
+  Instance->context->multicastSessionId++;
+  if (0u == Instance->context->multicastSessionId) {
+    Instance->context->multicastSessionId = 1;
+  }
+#if (defined(_WIN32) || defined(linux)) && !defined(USE_LWIP)
+  return Sd_Transmit(Instance->TxPdu.MulticastTxPduId, Instance->buffer, 44u + lengthOfOptions,
+                     NULL);
+#else
+  RemoteAddr = sub->RemoteAddr;
+  RemoteAddr.port = sub->port;
+  return Sd_Transmit(Instance->TxPdu.UnicastTxPduId, Instance->buffer, 44u + lengthOfOptions,
+                     &RemoteAddr);
+#endif
+}
+
+static uint16_t Sd_NumberOfSubscribes(const Sd_EventHandlerType *EventHandler) {
+  uint16_t numberOfSubscribes = 0u;
+  Sd_EventHandlerContextType *context = EventHandler->context;
+  DEC_SQP(EventHandlerSubscriber);
+  SQP_WHILE(EventHandlerSubscriber) {
+    numberOfSubscribes++;
+  }
+  SQP_WHILE_END()
+
+  return numberOfSubscribes;
+}
+
+static Sd_EventHandlerSubscriberType *Sd_LookupSubscribe(const Sd_EventHandlerType *EventHandler,
+                                                         const TcpIp_SockAddrType *RemoteAddr) {
+  Sd_EventHandlerSubscriberType *sub = NULL;
+  Sd_EventHandlerContextType *context = EventHandler->context;
+  int result;
+  DEC_SQP(EventHandlerSubscriber);
+  SQP_WHILE(EventHandlerSubscriber) {
+    ASLOG(SDI, ("Exist subscriber(%p) %d.%d.%d.%d:%d for event group %x\n", var,
+                var->RemoteAddr.addr[0], var->RemoteAddr.addr[1], var->RemoteAddr.addr[2],
+                var->RemoteAddr.addr[3], var->RemoteAddr.port, EventHandler->EventGroupId));
+    result = memcmp(&var->RemoteAddr, RemoteAddr, sizeof(TcpIp_SockAddrType));
+    if (0 == result) {
+      sub = var;
+      break;
+    }
+  }
+  SQP_WHILE_END()
+
+  if (NULL == sub) {
+    sub = SQP_ALLOC(EventHandlerSubscriber);
+    if (NULL != sub) {
+      (void)memset(sub, 0u, sizeof(Sd_EventHandlerSubscriberType));
+      ASLOG(SDI, ("New subscriber(%p) %d.%d.%d.%d:%d for event group %x\n", sub,
+                  RemoteAddr->addr[0], RemoteAddr->addr[1], RemoteAddr->addr[2],
+                  RemoteAddr->addr[3], RemoteAddr->port, EventHandler->EventGroupId));
+    }
+  }
+
+  return sub;
+}
+
+static Std_ReturnType Sd_HandleSubscribeEventGroup(const Sd_InstanceType *Instance,
+                                                   const TcpIp_SockAddrType *RemoteAddr,
+                                                   const Sd_EntryType2Type *entry2,
+                                                   const Sd_OptionIPv4Type *ipv4Opt) {
+  Std_ReturnType ret = E_NOT_OK;
+  uint16_t i;
+  const Sd_ServerServiceType *config;
+  const Sd_EventHandlerType *EventHandler;
+  Sd_EventHandlerSubscriberType *sub = NULL;
+  Sd_EventHandlerContextType *context = NULL;
+  uint16_t numOfSubscribers;
+#if !defined(_WIN32)
+  int result;
+#endif
+
+  for (i = 0u; i < Instance->numOfServerServices; i++) {
+    config = &Instance->ServerServices[i];
+    if ((config->ServiceId == entry2->serviceId) || (config->InstanceId == entry2->instanceId)) {
+      ret = E_OK;
+      break;
+    }
+  }
+
+  if (E_OK == ret) {
+    ret = E_NOT_OK;
+    for (i = 0u; i < config->numOfEventHandlers; i++) {
+      EventHandler = &config->EventHandlers[i];
+      if (EventHandler->EventGroupId == entry2->eventGroupId) {
+        context = EventHandler->context;
+        ret = E_OK;
+        break;
+      }
+    }
+  }
+
+  if (E_OK == ret) {
+    if (config->ProtocolType != ipv4Opt->ProtocolType) {
+      ASLOG(SDE, ("protocol not matched"));
+      ret = E_NOT_OK;
+    }
+  }
+#if !defined(_WIN32)
+  if (E_OK == ret) {
+    result = memcmp(ipv4Opt->Addr.addr, RemoteAddr->addr, sizeof(RemoteAddr->addr));
+    if (0 != result) {
+      ASLOG(SDE, ("sub: ipv4 addr not matched\n"));
+      ret = E_NOT_OK;
+    }
+  }
+#endif
+  if (E_OK == ret) {
+    sub = Sd_LookupSubscribe(EventHandler, &ipv4Opt->Addr);
+    if (NULL == sub) {
+      ASLOG(SDE, ("no free subscriber\n"));
+      ret = E_NOT_OK;
+    } else {
+      /* OK */
+    }
+  }
+
+  if (E_OK == ret) {
+    if (entry2->TTL > 0u) {
+      sub->RemoteAddr = ipv4Opt->Addr;
+      sub->port = RemoteAddr->port;
+      numOfSubscribers = Sd_NumberOfSubscribes(EventHandler);
+      /* @ECUC_SD_00097 */
+      if ((0u == EventHandler->MulticastThreshold) ||
+          ((numOfSubscribers + 1u) < EventHandler->MulticastThreshold)) {
+        ret = SomeIp_ResolveSubscriber(config->SomeIpServiceId, sub);
+        if (E_OK != ret) {
+          ASLOG(SDE, ("can't resolve subscriber %d.%d.%d.%d:%d\n", sub->RemoteAddr.addr[0],
+                      sub->RemoteAddr.addr[1], sub->RemoteAddr.addr[2], sub->RemoteAddr.addr[3],
+                      sub->RemoteAddr.port));
+          if (SD_FLG_EVENT_GROUP_UNSUBSCRIBED != sub->flags) {
+            EventHandler->onSubscribe(FALSE, &sub->RemoteAddr);
+            SQP_CRM_AND_FREE(EventHandlerSubscriber, sub);
+          } else {
+            SQP_FREE(EventHandlerSubscriber, sub);
+          }
+        }
+      } else {
+        sub->TxPduId = EventHandler->MulticastTxPduId;
+        if (FALSE == context->isMulticastOpened) {
+          (void)SoAd_OpenSoCon(EventHandler->MulticastEventSoConRef);
+          context->isMulticastOpened = TRUE;
+          ASLOG(SDI, ("SOCK[%u] consumed event group %x:%x:%x multicast on %d.%d.%d.%d:%d\n",
+                      EventHandler->MulticastEventSoConRef, entry2->serviceId, entry2->eventGroupId,
+                      entry2->instanceId, ipv4Opt->Addr.addr[0], ipv4Opt->Addr.addr[1],
+                      ipv4Opt->Addr.addr[2], ipv4Opt->Addr.addr[3], ipv4Opt->Addr.port));
+        }
+      }
+    }
+  }
+
+  if (E_OK == ret) {
+    if (entry2->TTL > 0u) {
+      if (SD_FLG_EVENT_GROUP_UNSUBSCRIBED == sub->flags) {
+        sub->flags = SD_FLG_EVENT_GROUP_SUBSCRIBED;
+        if (sub->TxPduId == EventHandler->MulticastTxPduId) {
+          sub->flags |= SD_FLG_EVENT_GROUP_MULTICAST;
+          SQP_CPREPEND(EventHandlerSubscriber, sub);
+        } else {
+          SQP_CAPPEND(EventHandlerSubscriber, sub);
+        }
+        EventHandler->onSubscribe(TRUE, &sub->RemoteAddr);
+      }
+      ret = Sd_ResponseSubscribeEventGroup(Instance, config, EventHandler, sub);
+      if (E_OK != ret) { /* retry next time */
+        SD_SET(sub->flags, SD_FLG_PENDING_EVENT_GROUP_ACK);
+      }
+      if (DEFAULT_TTL != entry2->TTL) {
+        sub->TTL = SD_CONVERT_MS_TO_MAIN_CYCLES(entry2->TTL * 1000u);
+      }
+      ret = E_OK;
+    } else {
+      ret = E_NOT_OK;
+    }
+  }
+
+  if ((E_OK != ret) && (NULL != sub)) {
+    if (SD_FLG_EVENT_GROUP_UNSUBSCRIBED != sub->flags) {
+      EventHandler->onSubscribe(FALSE, &sub->RemoteAddr);
+      SQP_CRM_AND_FREE(EventHandlerSubscriber, sub);
+    } else {
+      SQP_FREE(EventHandlerSubscriber, sub);
+    }
+  }
+
+  return ret;
+}
+
+static Std_ReturnType Sd_HandleSubscribeEventGroupAck(const Sd_InstanceType *Instance,
+                                                      const Sd_EntryType2Type *entry2,
+                                                      const Sd_OptionIPv4Type *ipv4Opt) {
+  Std_ReturnType ret = E_NOT_OK;
+  uint16_t i;
+  const Sd_ClientServiceType *config;
+  const Sd_ConsumedEventGroupType *ConsumedEventGroup;
+
+  for (i = 0u; i < Instance->numOfClientServices; i++) {
+    config = &Instance->ClientServices[i];
+    if ((config->ServiceId == entry2->serviceId) || (config->InstanceId == entry2->instanceId)) {
+      ret = E_OK;
+      break;
+    }
+  }
+
+  if (E_OK == ret) {
+    ret = E_NOT_OK;
+    for (i = 0u; i < config->numOfConsumedEventGroups; i++) {
+      ConsumedEventGroup = &config->ConsumedEventGroups[i];
+      if (ConsumedEventGroup->EventGroupId == entry2->eventGroupId) {
+        ret = E_OK;
+        break;
+      }
+    }
+  }
+
+  if (E_OK == ret) {
+    if (entry2->TTL > 0u) {
+      if (FALSE == ConsumedEventGroup->context->isSubscribed) {
+        if ((NULL != ipv4Opt) && (ConsumedEventGroup->MulticastThreshold > 0u)) {
+          (void)SoAd_SetRemoteAddr(ConsumedEventGroup->MulticastEventSoConRef, &ipv4Opt->Addr);
+          (void)SoAd_OpenSoCon(ConsumedEventGroup->MulticastEventSoConRef);
+          ASLOG(SDI, ("SOCK[%u] consumed event group %x:%x:%x multicast on %d.%d.%d.%d:%d\n",
+                      ConsumedEventGroup->MulticastEventSoConRef, entry2->serviceId,
+                      entry2->eventGroupId, entry2->instanceId, ipv4Opt->Addr.addr[0],
+                      ipv4Opt->Addr.addr[1], ipv4Opt->Addr.addr[2], ipv4Opt->Addr.addr[3],
+                      ipv4Opt->Addr.port));
+        }
+      }
+      ConsumedEventGroup->context->isSubscribed = TRUE;
+      ConsumedEventGroup->onSubscribe(TRUE);
+    } else {
+      ASLOG(SDE, ("invalid TTL for subscribe group ack\n"));
+      ConsumedEventGroup->context->isSubscribed = FALSE;
+      if (ConsumedEventGroup->MulticastThreshold > 0u) {
+        (void)SoAd_CloseSoCon(ConsumedEventGroup->MulticastEventSoConRef, TRUE);
+        ASLOG(SDI, ("SOCK[%u] consumed event group %x:%x:%x multicast off\n",
+                    ConsumedEventGroup->MulticastEventSoConRef, entry2->serviceId,
+                    entry2->eventGroupId, entry2->instanceId));
+      }
+      ConsumedEventGroup->onSubscribe(FALSE);
+    }
+  }
+
+  return ret;
+}
+
+static void Sd_HandleMsg(const Sd_InstanceType *Instance, const PduInfoType *PduInfoPtr,
+                         boolean isMulticast) {
+  const TcpIp_SockAddrType *RemoteAddr = (TcpIp_SockAddrType *)PduInfoPtr->MetaDataPtr;
+  uint8_t *data = PduInfoPtr->SduDataPtr;
+  PduLengthType length = PduInfoPtr->SduLength;
+  Sd_HeaderType header;
+  Std_ReturnType ret;
+  uint8_t type;
+  union {
+    Sd_EntryType1Type entry1;
+    Sd_EntryType2Type entry2;
+  } ET;
+  union {
+    Sd_OptionIPv4Type ipv4Opt;
+  } OPT;
+  uint16_t i;
+  (void)isMulticast;
+
+  ASLOG(SD, ("[%s] Rx %s %d bytes from %d.%d.%d.%d:%d\n", Instance->Hostname,
+             isMulticast ? "Multicast" : "Unicast", PduInfoPtr->SduLength, RemoteAddr->addr[0],
+             RemoteAddr->addr[1], RemoteAddr->addr[2], RemoteAddr->addr[3], RemoteAddr->port));
+
+  ret = Sd_DecodeHeader(data, length, &header);
+  for (i = 0u; (i < header.lengthOfEntries) && (E_OK == ret);) {
+    type = data[24u + i];
+    switch (type) {
+    case SD_FIND_SERVICE:
+      ret = Sd_DecodeEntryType1OF(&data[24u + i], NULL, &ET.entry1, NULL);
+      if (E_OK == ret) {
+        (void)Sd_HandleFindService(Instance, RemoteAddr, &ET.entry1);
+      }
+      i += 16u;
+      break;
+    case SD_OFFER_SERVICE:
+      ret = Sd_DecodeEntryType1OF(&data[24u + i], &data[28u + header.lengthOfEntries], &ET.entry1,
+                                  &OPT.ipv4Opt);
+      if (E_OK == ret) {
+        (void)Sd_HandleOfferService(Instance, RemoteAddr, &header, &ET.entry1, &OPT.ipv4Opt);
+      }
+      i += 16u;
+      break;
+    case SD_SUBSCRIBE_EVENT_GROUP:
+      ret = Sd_DecodeEntryType2SEG(&data[24u + i], &data[28u + header.lengthOfEntries], &ET.entry2,
+                                   &OPT.ipv4Opt);
+      if (E_OK == ret) {
+        (void)Sd_HandleSubscribeEventGroup(Instance, RemoteAddr, &ET.entry2, &OPT.ipv4Opt);
+      }
+      i += 16u;
+      break;
+    case SD_SUBSCRIBE_EVENT_GROUP_ACK:
+      ret = Sd_DecodeEntryType2SEGAck(&data[24u + i], &data[28u + header.lengthOfEntries],
+                                      &ET.entry2, &OPT.ipv4Opt);
+      if (E_OK == ret) {
+        (void)Sd_HandleSubscribeEventGroupAck(Instance, &ET.entry2, &OPT.ipv4Opt);
+      }
+      i += 16u;
+      break;
+    default:
+      ASLOG(SDE, ("TODO: unsupported SD entry type %d\n", type));
+      ret = E_NOT_OK;
+      break;
+    }
+  }
+}
+
+static void Sd_InitServerServiceEventHandlers(const Sd_ServerServiceType *config) {
+  uint16_t i;
+  const Sd_EventHandlerType *EventHandler;
+  for (i = 0u; i < config->numOfEventHandlers; i++) {
+    EventHandler = &config->EventHandlers[i];
+    (void)memset(EventHandler->context, 0u, sizeof(Sd_EventHandlerContextType));
+    SQP_INIT(EventHandlerSubscriber);
+    STAILQ_INIT(&EventHandler->context->listEventHandlerSubscribers);
+  }
+}
+
+static void Sd_ReInitServerServiceEventHandlers(const Sd_ServerServiceType *config) {
+  uint16_t i;
+  const Sd_EventHandlerType *EventHandler;
+  Sd_EventHandlerContextType *context;
+  DEC_SQP(EventHandlerSubscriber);
+
+  for (i = 0u; i < config->numOfEventHandlers; i++) {
+    EventHandler = &config->EventHandlers[i];
+    context = EventHandler->context;
+    SQP_WHILE(EventHandlerSubscriber) {
+      if (SD_FLG_EVENT_GROUP_UNSUBSCRIBED != var->flags) {
+        EventHandler->onSubscribe(FALSE, &var->RemoteAddr);
+      }
+      SQP_CRM_AND_FREE(EventHandlerSubscriber, var);
+    }
+    SQP_WHILE_END()
+    if (TRUE == context->isMulticastOpened) {
+      (void)SoAd_CloseSoCon(EventHandler->MulticastEventSoConRef, TRUE);
+      ASLOG(SDI, ("SOCK[%u] event group %x:-:%x multicast off\n",
+                  EventHandler->MulticastEventSoConRef, config->ServiceId, config->InstanceId));
+    }
+    (void)memset(EventHandler->context, 0u, sizeof(Sd_EventHandlerContextType));
+    STAILQ_INIT(&EventHandler->context->listEventHandlerSubscribers);
+  }
+}
+
+static void Sd_InitServerService(const Sd_InstanceType *Instance) {
+  uint16_t i;
+  const Sd_ServerServiceType *config;
+  Sd_ServerServiceContextType *context;
+
+  for (i = 0u; i < Instance->numOfServerServices; i++) {
+    config = &Instance->ServerServices[i];
+    context = config->context;
+    (void)memset(context, 0u, sizeof(*context));
+    Sd_InitServerServiceEventHandlers(config);
+    if (TRUE == config->AutoAvailable) {
+      SD_SET(context->flags, SD_FLG_STATE_REQUEST_ONLINE);
+    }
+  }
+}
+
+static void Sd_InitClientServiceConsumedEventGroups(const Sd_ClientServiceType *config,
+                                                    boolean soft) {
+  uint16_t i;
+  uint8_t flags;
+  const Sd_ConsumedEventGroupType *ConsumedEventGroup;
+  Sd_ConsumedEventGroupContextType *context;
+  for (i = 0u; i < config->numOfConsumedEventGroups; i++) {
+    ConsumedEventGroup = &config->ConsumedEventGroups[i];
+    context = ConsumedEventGroup->context;
+    flags = ConsumedEventGroup->context->flags;
+    if ((TRUE == soft) && (TRUE == context->isSubscribed) &&
+        (ConsumedEventGroup->MulticastThreshold > 0u)) {
+      (void)SoAd_CloseSoCon(ConsumedEventGroup->MulticastEventSoConRef, TRUE);
+      ASLOG(SDI,
+            ("SOCK[%u] consumed event group %x:-:%x multicast off\n",
+             ConsumedEventGroup->MulticastEventSoConRef, config->ServiceId, config->InstanceId));
+    }
+    (void)memset(context, 0u, sizeof(Sd_ConsumedEventGroupContextType));
+    if ((TRUE == ConsumedEventGroup->AutoRequire) ||
+        ((TRUE == soft) && (0u != (flags & SD_FLG_STATE_REQUEST_ONLINE)))) {
+      SD_SET(context->flags, SD_FLG_STATE_REQUEST_ONLINE);
+    }
+  }
+}
+
+static void Sd_InitClientService(const Sd_InstanceType *Instance) {
+  uint16_t i;
+  const Sd_ClientServiceType *config;
+  Sd_ClientServiceContextType *context;
+
+  for (i = 0u; i < Instance->numOfClientServices; i++) {
+    config = &Instance->ClientServices[i];
+    context = config->context;
+    (void)memset(context, 0u, sizeof(*context));
+    if (TRUE == config->AutoRequire) {
+      context->phase = SD_PHASE_INITIAL_WAIT;
+      context->findTimer = Sd_RandTime(config->ClientTimer->InitialFindDelayMin,
+                                       config->ClientTimer->InitialFindDelayMax);
+      context->isOffered = FALSE;
+      context->TTL = 0u;
+    }
+    Sd_InitClientServiceConsumedEventGroups(config, FALSE);
+  }
+}
+
+static void Sd_ServerServiceLinkControl(const Sd_ServerServiceType *config) {
+  Sd_ServerServiceContextType *context = config->context;
+  if (context->phase != SD_PHASE_DOWN) {
+    if (0u == (SD_FLG_LINK_UP & context->flags)) {
+      (void)SoAd_OpenSoCon(config->SoConId);
+      ASLOG(SDI, ("SOCK[%u] server service %x:-:%x link up with %s\n", config->SoConId,
+                  config->ServiceId, config->InstanceId,
+                  (config->ProtocolType == TCPIP_IPPROTO_TCP) ? "TCP" : "UDP"));
+      SD_SET(context->flags, SD_FLG_LINK_UP);
+    }
+  } else {
+    if (0u != (SD_FLG_LINK_UP & context->flags)) {
+      (void)SoAd_CloseSoCon(config->SoConId, TRUE);
+      SD_CLEAR(context->flags, SD_FLG_LINK_UP);
+      ASLOG(SDI, ("SOCK[%u] server service %x:-:%x link down\n", config->SoConId, config->ServiceId,
+                  config->InstanceId));
+    }
+  }
+}
+
+static void Sd_ServerServiceMain_Down(const Sd_ServerServiceType *config) {
+  Sd_ServerServiceContextType *context = config->context;
+
+  if (0u != (context->flags & SD_FLG_STATE_REQUEST_ONLINE)) { /* @SWS_SD_00317 */
+    Sd_InitServerServiceEventHandlers(config);
+    context->phase = SD_PHASE_INITIAL_WAIT;
+    /* @SWS_SD_00318 */
+    context->offerTimer = Sd_RandTime(config->ServerTimer->InitialOfferDelayMin,
+                                      config->ServerTimer->InitialOfferDelayMax);
+    ASLOG(SD, ("Service %X:%X going up\n", config->ServiceId, config->InstanceId));
+  }
+}
+
+static void Sd_ServerServiceMain_InitialWait(const Sd_ServerServiceType *config) {
+  Sd_ServerServiceContextType *context = config->context;
+  if (0u == (context->flags & SD_FLG_STATE_REQUEST_ONLINE)) {
+    /* @SWS_SD_00323 */
+    context->offerTimer = 0u;
+    Sd_ReInitServerServiceEventHandlers(config);
+    context->phase = SD_PHASE_DOWN;
+  } else {
+    if (context->offerTimer > 0u) {
+      context->offerTimer--;
+      if (0u == context->offerTimer) {
+        /* @SWS_SD_00321 */
+        SD_SET(context->flags, SD_FLG_PENDING_OFFER);
+        context->counter = 0u;
+        /* @SWS_SD_00434, @SWS_SD_00435 */
+        if (config->ServerTimer->InitialOfferRepetitionsMax > 0u) {
+          ASLOG(SD, ("Service %X:%X enter repetition\n", config->ServiceId, config->InstanceId));
+          context->phase = SD_PHASE_REPETITION;
+          context->offerTimer = config->ServerTimer->InitialOfferRepetitionBaseDelay;
+        } else {
+          ASLOG(SD, ("Service %X:%X enter main\n", config->ServiceId, config->InstanceId));
+          context->phase = SD_PHASE_MAIN;
+          context->offerTimer = config->ServerTimer->OfferCyclicDelay;
+        }
+      }
+    } else {
+      ASLOG(SDE, ("Timer not started in phase INITIAL_WAIT\n"));
+    }
+  }
+}
+
+static void Sd_ServerServiceMain_Repetition(const Sd_ServerServiceType *config) {
+  Sd_ServerServiceContextType *context = config->context;
+  if (0u == (context->flags & SD_FLG_STATE_REQUEST_ONLINE)) {
+    SD_SET(context->flags, SD_FLG_PENDING_STOP_OFFER);
+    Sd_ReInitServerServiceEventHandlers(config);
+    context->offerTimer = 0u;
+    context->phase = SD_PHASE_DOWN;
+  } else {
+    if (context->offerTimer > 0u) {
+      context->offerTimer--;
+      if (0u == context->offerTimer) {
+        SD_SET(context->flags, SD_FLG_PENDING_OFFER);
+        context->counter++;
+        if (context->counter < config->ServerTimer->InitialOfferRepetitionsMax) {
+          context->offerTimer = config->ServerTimer->InitialOfferRepetitionBaseDelay
+                                << context->counter;
+        } else {
+          ASLOG(SD, ("Service %X:%X enter main\n", config->ServiceId, config->InstanceId));
+          context->phase = SD_PHASE_MAIN;
+          context->offerTimer = config->ServerTimer->OfferCyclicDelay;
+        }
+      }
+    } else {
+      ASLOG(SDE, ("Timer not started in phase INITIAL_WAIT\n"));
+    }
+  }
+}
+
+static void Sd_ServerServiceMain_Main(const Sd_ServerServiceType *config) {
+  Sd_ServerServiceContextType *context = config->context;
+  if (0u == (context->flags & SD_FLG_STATE_REQUEST_ONLINE)) {
+    Sd_ReInitServerServiceEventHandlers(config);
+    SD_SET(context->flags, SD_FLG_PENDING_STOP_OFFER);
+    context->offerTimer = 0u;
+    context->phase = SD_PHASE_DOWN;
+  } else {
+    if (context->offerTimer > 0u) {
+      context->offerTimer--;
+      if (0u == context->offerTimer) {
+        SD_SET(context->flags, SD_FLG_PENDING_OFFER);
+        if (context->counter < 0xFFu) {
+          context->counter++;
+        }
+        context->offerTimer = config->ServerTimer->OfferCyclicDelay;
+      }
+    } else {
+      if ((0u == config->ServerTimer->OfferCyclicDelay) &&
+          (DEFAULT_TTL == config->ServerTimer->TTL)) {
+        /* @SWS_SD_00741 */
+      } else {
+        ASLOG(SDE, ("Timer not started in phase INITIAL_WAIT\n"));
+      }
+    }
+  }
+}
+
+static void Sd_ClientService_GoToDown(const Sd_ClientServiceType *config) {
+  uint16_t i;
+  Sd_ClientServiceContextType *context = config->context;
+  const Sd_ConsumedEventGroupType *ConsumedEventGroup;
+
+  context->findTimer = 0u;
+  for (i = 0u; i < config->numOfConsumedEventGroups; i++) {
+    ConsumedEventGroup = &config->ConsumedEventGroups[i];
+    if (TRUE == ConsumedEventGroup->context->isSubscribed) {
+      ConsumedEventGroup->context->isSubscribed = FALSE;
+      SD_SET_CLEAR(ConsumedEventGroup->context->flags, SD_FLG_PENDING_STOP_SUBSCRIBE,
+                   SD_FLG_PENDING_SUBSCRIBE | SD_FLG_STATE_REQUEST_ONCE);
+    }
+  }
+  context->phase = SD_PHASE_DOWN;
+}
+
+static void Sd_ClientService_GoToInitialWait(const Sd_ClientServiceType *config) {
+  uint16_t i;
+  Sd_ClientServiceContextType *context = config->context;
+  const Sd_ConsumedEventGroupType *ConsumedEventGroup;
+
+  context->findTimer =
+    Sd_RandTime(config->ClientTimer->InitialFindDelayMin, config->ClientTimer->InitialFindDelayMax);
+  for (i = 0u; i < config->numOfConsumedEventGroups; i++) {
+    ConsumedEventGroup = &config->ConsumedEventGroups[i];
+    if (TRUE == ConsumedEventGroup->context->isSubscribed) {
+      ConsumedEventGroup->onSubscribe(FALSE);
+    }
+    ConsumedEventGroup->context->isSubscribed = FALSE;
+    SD_CLEAR(ConsumedEventGroup->context->flags, SD_FLG_STATE_REQUEST_ONCE);
+  }
+
+  context->phase = SD_PHASE_INITIAL_WAIT; /* @SWS_SD_00600 */
+}
+
+static void Sd_ClientServiceMain_TTL(const Sd_ClientServiceType *config) {
+  Sd_ClientServiceContextType *context = config->context;
+
+  if (context->isOffered && (context->TTL > 0u)) {
+    context->TTL--;
+    if (0u == context->TTL) {
+      context->isOffered = FALSE;
+      Sd_ClientService_GoToInitialWait(config);
+    }
+  }
+}
+
+static void Sd_ClientServiceMain_Down(const Sd_ClientServiceType *config) {
+  Sd_ClientServiceContextType *context = config->context;
+  if (0u != (context->flags & SD_FLG_STATE_REQUEST_ONLINE)) {
+    if (TRUE == context->isOffered) {
+      ASLOG(SD, ("Client %x:%x enter main by offer\n", config->ServiceId, config->InstanceId));
+      context->phase = SD_PHASE_MAIN;
+      context->findTimer = 0u;
+    } else {
+      ASLOG(SD, ("Client %x:%x going up\n", config->ServiceId, config->InstanceId));
+      Sd_ClientService_GoToInitialWait(config);
+    }
+  }
+}
+
+static void Sd_ClientServiceMain_InitialWait(const Sd_ClientServiceType *config) {
+  Sd_ClientServiceContextType *context = config->context;
+  if (0u == (context->flags & SD_FLG_STATE_REQUEST_ONLINE)) {
+    Sd_ClientService_GoToDown(config);
+  } else if (TRUE == context->isOffered) {
+    ASLOG(SD, ("Client %x:%x enter main by offer\n", config->ServiceId, config->InstanceId));
+    context->phase = SD_PHASE_MAIN;
+    context->findTimer = 0u;
+  } else {
+    if (context->findTimer > 0u) {
+      context->findTimer--;
+      if (0u == context->findTimer) {
+        SD_SET(context->flags, SD_FLG_PENDING_FIND);
+        if (config->ClientTimer->InitialFindRepetitionsMax > 0u) {
+          ASLOG(SD, ("Client %x:%x enter repetition\n", config->ServiceId, config->InstanceId));
+          context->phase = SD_PHASE_REPETITION;
+          context->counter = 0u;
+          context->findTimer = config->ClientTimer->InitialFindRepetitionsBaseDelay;
+        } else {
+          ASLOG(SD, ("Client %x:%x enter main\n", config->ServiceId, config->InstanceId));
+          context->phase = SD_PHASE_MAIN;
+        }
+      }
+    }
+  }
+}
+
+static void Sd_ClientServiceMain_Repetition(const Sd_ClientServiceType *config) {
+  Sd_ClientServiceContextType *context = config->context;
+  if (0u == (context->flags & SD_FLG_STATE_REQUEST_ONLINE)) {
+    Sd_ClientService_GoToDown(config);
+  } else if (TRUE == context->isOffered) {
+    ASLOG(SD, ("Client %x:%x enter main by offer\n", config->ServiceId, config->InstanceId));
+    context->phase = SD_PHASE_MAIN;
+    context->findTimer = 0u;
+  } else {
+    if (context->findTimer > 0u) {
+      context->findTimer--;
+      if (0u == context->findTimer) {
+        SD_SET(context->flags, SD_FLG_PENDING_FIND);
+        context->counter++;
+        if (context->counter < config->ClientTimer->InitialFindRepetitionsMax) {
+          context->findTimer = config->ClientTimer->InitialFindRepetitionsBaseDelay
+                               << context->counter;
+        } else {
+          ASLOG(SD, ("Client %x:%x enter main\n", config->ServiceId, config->InstanceId));
+          context->phase = SD_PHASE_MAIN;
+        }
+      }
+    }
+  }
+}
+
+static void Sd_ConsumedEventGroupTTLStart(const Sd_ConsumedEventGroupType *ConsumedEventGroup,
+                                          const Sd_ClientServiceType *config) {
+  if (DEFAULT_TTL != config->ClientTimer->TTL) {
+    ConsumedEventGroup->context->TTL =
+      SD_CONVERT_MS_TO_MAIN_CYCLES(config->ClientTimer->TTL * 1000u);
+    if (ConsumedEventGroup->context->TTL > SD_CONVERT_MS_TO_MAIN_CYCLES(100u)) {
+      ConsumedEventGroup->context->TTL -= SD_CONVERT_MS_TO_MAIN_CYCLES(100u);
+    }
+    ASLOG(SD, ("start ConsumedEventGroup %x:%x timer = %u\n", ConsumedEventGroup->EventGroupId,
+               ConsumedEventGroup->HandleId, ConsumedEventGroup->context->TTL));
+  }
+}
+
+static void Sd_ClientServiceMain_Main(const Sd_ClientServiceType *config) {
+  Sd_ClientServiceContextType *context = config->context;
+  uint16_t i;
+  const Sd_ConsumedEventGroupType *ConsumedEventGroup;
+  if (0u == (context->flags & SD_FLG_STATE_REQUEST_ONLINE)) {
+    Sd_ClientService_GoToDown(config);
+  } else if (TRUE == context->isOffered) {
+    for (i = 0u; i < config->numOfConsumedEventGroups; i++) {
+      ConsumedEventGroup = &config->ConsumedEventGroups[i];
+      if (0u != (ConsumedEventGroup->context->flags & SD_FLG_STATE_REQUEST_ONLINE)) {
+        if ((FALSE == ConsumedEventGroup->context->isSubscribed) &&
+            (0u == (ConsumedEventGroup->context->flags & SD_FLG_STATE_REQUEST_ONCE))) {
+          SD_SET_CLEAR(ConsumedEventGroup->context->flags,
+                       SD_FLG_PENDING_SUBSCRIBE | SD_FLG_STATE_REQUEST_ONCE,
+                       SD_FLG_PENDING_STOP_SUBSCRIBE);
+          Sd_ConsumedEventGroupTTLStart(ConsumedEventGroup, config);
+        } else {
+          if (ConsumedEventGroup->context->TTL > 0u) {
+            ConsumedEventGroup->context->TTL--;
+            if (0u == ConsumedEventGroup->context->TTL) {
+              SD_SET(ConsumedEventGroup->context->flags, SD_FLG_PENDING_SUBSCRIBE);
+              Sd_ConsumedEventGroupTTLStart(ConsumedEventGroup, config);
+            }
+          }
+        }
+      } else {
+        if (TRUE == ConsumedEventGroup->context->isSubscribed) {
+          ConsumedEventGroup->context->isSubscribed = FALSE;
+          SD_SET_CLEAR(ConsumedEventGroup->context->flags, SD_FLG_PENDING_STOP_SUBSCRIBE,
+                       SD_FLG_PENDING_SUBSCRIBE | SD_FLG_STATE_REQUEST_ONCE);
+        }
+      }
+    }
+  } else {
+    /* do nothing */
+  }
+}
+
+static void Sd_ServerServiceOfferCheck(const Sd_InstanceType *Instance, uint32_t *lengthOfEntries,
+                                       uint32_t *lengthOfOptions, uint8_t *numOfOptions) {
+  uint16_t i;
+  const Sd_ServerServiceType *config;
+  Sd_ServerServiceContextType *context;
+
+  for (i = 0u; i < Instance->numOfServerServices; i++) {
+    config = &Instance->ServerServices[i];
+    context = config->context;
+    if (0u != (context->flags & (SD_FLG_PENDING_OFFER | SD_FLG_PENDING_STOP_OFFER))) {
+      if (((28u + *lengthOfEntries + *lengthOfOptions) < (Instance->bufLen - 28u)) &&
+          (*numOfOptions < 255u)) {
+        /* @SWS_SD_00160 */
+        *lengthOfEntries += 16u;
+        *lengthOfOptions += 12u;
+        *numOfOptions += 1u;
+      } else {
+        break;
+      }
+    }
+  }
+}
+
+static void Sd_ClientServiceFindCheck(const Sd_InstanceType *Instance, uint32_t *lengthOfEntries,
+                                      uint32_t lengthOfOptions) {
+  uint16_t i;
+  const Sd_ClientServiceType *config;
+  Sd_ClientServiceContextType *context;
+
+  for (i = 0u; i < Instance->numOfClientServices; i++) {
+    config = &Instance->ClientServices[i];
+    context = config->context;
+    if (0u != (context->flags & SD_FLG_PENDING_FIND)) {
+      if ((28u + *lengthOfEntries + lengthOfOptions) < (Instance->bufLen - 16u)) {
+        *lengthOfEntries += 16u;
+      } else {
+        break;
+      }
+    }
+  }
+}
+
+static void Sd_ServerServiceOfferBuild(const Sd_InstanceType *Instance, uint32_t *offsetOfEntries,
+                                       uint32_t *offsetOfOptions, uint8_t *numOfOptions,
+                                       uint32_t *freeSpace) {
+  uint16_t i;
+  const Sd_ServerServiceType *config;
+  Sd_ServerServiceContextType *context;
+  TcpIp_SockAddrType LocalAddr;
+  uint32_t TTL;
+  Std_ReturnType ret;
+
+  for (i = 0u; i < Instance->numOfServerServices; i++) {
+    config = &Instance->ServerServices[i];
+    context = config->context;
+    if (0u != (context->flags & (SD_FLG_PENDING_OFFER | SD_FLG_PENDING_STOP_OFFER))) {
+      if (*freeSpace >= 28u) {
+        /* @SWS_SD_00416 */
+        ret = SoAd_GetLocalAddr(config->SoConId, &LocalAddr, NULL, NULL);
+        if (E_OK == ret) {
+          if (0u != (context->flags & SD_FLG_PENDING_STOP_OFFER)) {
+            TTL = 0u;
+          } else {
+            TTL = config->ServerTimer->TTL;
+          }
+          SD_CLEAR(context->flags, SD_FLG_PENDING_OFFER | SD_FLG_PENDING_STOP_OFFER);
+          Sd_BuildEntryType1(&Instance->buffer[*offsetOfEntries], SD_OFFER_SERVICE, *numOfOptions,
+                             0u, 1u, 0u, config->ServiceId, config->InstanceId,
+                             config->MajorVersion, config->MinorVersion, TTL);
+          Sd_BuildOptionIPv4Endpoint(&Instance->buffer[*offsetOfOptions], &LocalAddr,
+                                     config->ProtocolType);
+          *offsetOfEntries += 16;
+          *offsetOfOptions += 12;
+          *numOfOptions += 1;
+          *freeSpace -= 28;
+        }
+      } else {
+        break;
+      }
+    }
+  }
+}
+
+static void Sd_ClientServiceFindBuild(const Sd_InstanceType *Instance, uint32_t *offsetOfEntries,
+                                      uint32_t *freeSpace) {
+  uint16_t i;
+  const Sd_ClientServiceType *config;
+  Sd_ClientServiceContextType *context;
+
+  for (i = 0u; i < Instance->numOfClientServices; i++) {
+    config = &Instance->ClientServices[i];
+    context = config->context;
+    if (0u != (context->flags & SD_FLG_PENDING_FIND)) {
+      if (*freeSpace >= 16) {
+        SD_CLEAR(context->flags, SD_FLG_PENDING_FIND);
+        Sd_BuildEntryType1(&Instance->buffer[*offsetOfEntries], SD_FIND_SERVICE, 0u, 0u, 0u, 0u,
+                           config->ServiceId, config->InstanceId, config->MajorVersion,
+                           config->MinorVersion, config->ClientTimer->TTL);
+        *offsetOfEntries += 16;
+        *freeSpace -= 16;
+      } else {
+        break;
+      }
+    }
+  }
+}
+
+static void Sd_ServerServiceMain_TTL(const Sd_ServerServiceType *config) {
+  uint16_t i;
+  uint16_t numOfSubscribers;
+  const Sd_EventHandlerType *EventHandler;
+  Sd_EventHandlerContextType *context;
+  DEC_SQP(EventHandlerSubscriber);
+  for (i = 0u; i < config->numOfEventHandlers; i++) {
+    EventHandler = &config->EventHandlers[i];
+    context = EventHandler->context;
+    SQP_WHILE(EventHandlerSubscriber) {
+      if (SD_FLG_EVENT_GROUP_UNSUBSCRIBED != var->flags) {
+        if (var->TTL > 0u) {
+          var->TTL--;
+          if (0u == var->TTL) {
+            ASLOG(SDI, ("Delete subscriber(%p) %d.%d.%d.%d:%d for event group %x\n", var,
+                        var->RemoteAddr.addr[0], var->RemoteAddr.addr[1], var->RemoteAddr.addr[2],
+                        var->RemoteAddr.addr[3], var->RemoteAddr.port, EventHandler->EventGroupId));
+            EventHandler->onSubscribe(FALSE, &var->RemoteAddr);
+            SQP_CRM_AND_FREE(EventHandlerSubscriber, var);
+          }
+        }
+      }
+    }
+    SQP_WHILE_END()
+
+    numOfSubscribers = Sd_NumberOfSubscribes(EventHandler);
+    if (0u == numOfSubscribers) {
+      if (TRUE == context->isMulticastOpened) {
+        context->isMulticastOpened = FALSE;
+        (void)SoAd_CloseSoCon(EventHandler->MulticastEventSoConRef, TRUE);
+        ASLOG(SDI, ("SOCK[%u] event group %x:-:%x multicast off\n",
+                    EventHandler->MulticastEventSoConRef, config->ServiceId, config->InstanceId));
+      }
+    }
+  }
+}
+
+static void Sd_ServerServiceMain(const Sd_InstanceType *Instance) {
+  uint16_t i;
+  const Sd_ServerServiceType *config;
+  Sd_ServerServiceContextType *context;
+  for (i = 0u; i < Instance->numOfServerServices; i++) {
+    config = &Instance->ServerServices[i];
+    context = config->context;
+    Sd_ServerServiceMain_TTL(config);
+    Sd_ServerServiceLinkControl(config);
+    switch (context->phase) {
+    case SD_PHASE_DOWN:
+      Sd_ServerServiceMain_Down(config);
+      break;
+    case SD_PHASE_INITIAL_WAIT:
+      Sd_ServerServiceMain_InitialWait(config);
+      break;
+    case SD_PHASE_REPETITION:
+      Sd_ServerServiceMain_Repetition(config);
+      break;
+    case SD_PHASE_MAIN:
+      Sd_ServerServiceMain_Main(config);
+      break;
+    default:
+      break;
+    }
+  }
+}
+
+static void Sd_ClientServiceLinkControl(const Sd_ClientServiceType *config) {
+  Sd_ClientServiceContextType *context = config->context;
+  if (context->phase != SD_PHASE_DOWN) {
+    if (TRUE == context->isOffered) {
+      if (0u == (SD_FLG_LINK_UP & context->flags)) {
+        (void)SoAd_SetRemoteAddr(config->SoConId, &(context->RemoteAddr));
+        (void)SoAd_OpenSoCon(config->SoConId);
+        ASLOG(SDI,
+              ("SOCK[%u] client service %x:-:%x link up with %s:%d.%d.%d.%d:%d\n", config->SoConId,
+               config->ServiceId, config->InstanceId,
+               (config->ProtocolType == TCPIP_IPPROTO_TCP) ? "TCP" : "UDP",
+               context->RemoteAddr.addr[0], context->RemoteAddr.addr[1],
+               context->RemoteAddr.addr[2], context->RemoteAddr.addr[3], context->RemoteAddr.port));
+        SD_SET(context->flags, SD_FLG_LINK_UP);
+      }
+    } else {
+      if (0u != (SD_FLG_LINK_UP & context->flags)) {
+        (void)SoAd_CloseSoCon(config->SoConId, TRUE);
+        SD_CLEAR(context->flags, SD_FLG_LINK_UP);
+        ASLOG(SDI, ("SOCK[%u] client service %x:-:%x link down\n", config->SoConId,
+                    config->ServiceId, config->InstanceId));
+      }
+    }
+  } else {
+    if (0u != (SD_FLG_LINK_UP & context->flags)) {
+      (void)SoAd_CloseSoCon(config->SoConId, TRUE);
+      SD_CLEAR(context->flags, SD_FLG_LINK_UP);
+      ASLOG(SDI, ("SOCK[%u] client service %x:-:%x link down\n", config->SoConId, config->ServiceId,
+                  config->InstanceId));
+    }
+  }
+}
+
+static void Sd_ClientServiceMain(const Sd_InstanceType *Instance) {
+  uint16_t i;
+  const Sd_ClientServiceType *config;
+  Sd_ClientServiceContextType *context;
+  for (i = 0u; i < Instance->numOfClientServices; i++) {
+    config = &Instance->ClientServices[i];
+    context = config->context;
+    Sd_ClientServiceMain_TTL(config);
+    Sd_ClientServiceLinkControl(config);
+    switch (context->phase) {
+    case SD_PHASE_DOWN:
+      Sd_ClientServiceMain_Down(config);
+      break;
+    case SD_PHASE_INITIAL_WAIT:
+      Sd_ClientServiceMain_InitialWait(config);
+      break;
+    case SD_PHASE_REPETITION:
+      Sd_ClientServiceMain_Repetition(config);
+      break;
+    case SD_PHASE_MAIN:
+      Sd_ClientServiceMain_Main(config);
+      break;
+    default:
+      break;
+    }
+  }
+}
+
+static boolean Sd_ServerServiceEventGroupAckCheck(const Sd_InstanceType *Instance) {
+  uint16_t i;
+  uint16_t j;
+  const Sd_ServerServiceType *config;
+  const Sd_EventHandlerType *EventHandler;
+  Sd_EventHandlerContextType *context;
+  DEC_SQP(EventHandlerSubscriber);
+  boolean TxOne = FALSE;
+  Std_ReturnType ret = E_OK;
+
+  for (i = 0u; (i < Instance->numOfServerServices) && (FALSE == TxOne); i++) {
+    config = &Instance->ServerServices[i];
+    for (j = 0u; j < config->numOfEventHandlers; j++) {
+      EventHandler = &config->EventHandlers[j];
+      context = EventHandler->context;
+      SQP_WHILE(EventHandlerSubscriber) {
+        if (0u != (var->flags & SD_FLG_PENDING_EVENT_GROUP_ACK)) {
+          ret = Sd_ResponseSubscribeEventGroup(Instance, config, EventHandler, var);
+          if (E_OK == ret) {
+            SD_CLEAR(var->flags, SD_FLG_PENDING_EVENT_GROUP_ACK);
+            TxOne = TRUE;
+            break;
+          } else {
+            ASLOG(SDE, ("Sending Subscribe Event Group Ack Failed\n"));
+          }
+        }
+      }
+      SQP_WHILE_END()
+    }
+  }
+
+  return TxOne;
+}
+
+static Std_ReturnType
+Sd_SendSubscribeEventGroup(const Sd_InstanceType *Instance, const Sd_ClientServiceType *config,
+                           const Sd_ConsumedEventGroupType *ConsumedEventGroup) {
+  Std_ReturnType ret = E_OK;
+  TcpIp_SockAddrType LocalAddr;
+  uint32_t TTL = 0u;
+
+  if (0u == (ConsumedEventGroup->context->flags & SD_FLG_PENDING_STOP_SUBSCRIBE)) {
+    TTL = config->ClientTimer->TTL;
+  } else {
+    /* send stop */
+  }
+
+  Sd_BuildEntryType2(&Instance->buffer[24u], SD_SUBSCRIBE_EVENT_GROUP, 0u, 0u, 1u, 0u,
+                     config->ServiceId, config->InstanceId, config->MajorVersion, 0u,
+                     ConsumedEventGroup->EventGroupId, TTL);
+  ret = SoAd_GetLocalAddr(config->SoConId, &LocalAddr, NULL, NULL);
+  if (E_OK == ret) {
+    ASLOG(SDI, ("SOCK[%u] local addr %d.%d.%d.%d:%d subscribe event group %x\n", config->SoConId,
+                LocalAddr.addr[0], LocalAddr.addr[1], LocalAddr.addr[2], LocalAddr.addr[3],
+                LocalAddr.port, ConsumedEventGroup->EventGroupId));
+    Sd_BuildOptionIPv4Endpoint(&Instance->buffer[44], &LocalAddr, config->ProtocolType);
+    Sd_BuildHeader(Instance->buffer, Instance->context->flags,
+                   Instance->context->multicastSessionId, 16, 12);
+    if (1u == Instance->context->multicastSessionId) {
+      /* @SWS_SD_00034, see the identical comment in Sd_ServerServiceFindServiceCheck(). */
+      Instance->context->flags &= ~SD_REBOOT_FLAG;
+    }
+    Instance->context->multicastSessionId++;
+    if (0u == Instance->context->multicastSessionId) {
+      Instance->context->multicastSessionId = 1;
+    }
+#if (defined(_WIN32) || defined(linux)) && !defined(USE_LWIP)
+    /* NOTE: this is a workaroud for case that server and client on the same host */
+    ret = Sd_Transmit(Instance->TxPdu.MulticastTxPduId, Instance->buffer, 56, NULL);
+#else
+    (void)memcpy(LocalAddr.addr, config->context->RemoteAddr.addr, 4);
+    LocalAddr.port = config->context->port;
+    ret = Sd_Transmit(Instance->TxPdu.UnicastTxPduId, Instance->buffer, 56, &LocalAddr);
+#endif
+    if (E_OK != ret) {
+      ASLOG(SDE, ("Sending Subscribe Event Group Ack Failed\n"));
+    }
+  }
+
+  return ret;
+}
+
+static boolean Sd_ClientServiceSubscribeEventGroupCheck(const Sd_InstanceType *Instance) {
+  uint16_t i;
+  uint16_t j;
+  const Sd_ClientServiceType *config;
+  const Sd_ConsumedEventGroupType *ConsumedEventGroup;
+  boolean TxOne = FALSE;
+  Std_ReturnType ret;
+
+  for (i = 0u; (i < Instance->numOfClientServices) && (FALSE == TxOne); i++) {
+    config = &Instance->ClientServices[i];
+    for (j = 0u; (j < config->numOfConsumedEventGroups) && (FALSE == TxOne); j++) {
+      ConsumedEventGroup = &config->ConsumedEventGroups[j];
+      if (0u != (ConsumedEventGroup->context->flags &
+                 (SD_FLG_PENDING_SUBSCRIBE | SD_FLG_PENDING_STOP_SUBSCRIBE))) {
+        ret = Sd_SendSubscribeEventGroup(Instance, config, ConsumedEventGroup);
+        if (E_OK == ret) {
+          SD_CLEAR(ConsumedEventGroup->context->flags,
+                   SD_FLG_PENDING_SUBSCRIBE | SD_FLG_PENDING_STOP_SUBSCRIBE);
+          TxOne = TRUE;
+        }
+      }
+    }
+  }
+
+  return TxOne;
+}
+
+static void Sd_ServerClientServiceMain(const Sd_InstanceType *Instance) {
+  uint32_t lengthOfEntries = 0u;
+  uint32_t lengthOfOptions = 0u;
+  uint32_t offsetOfEntries = 24;
+  uint8_t numOfOptions = 0u;
+  uint32_t offsetOfOptions;
+  uint32_t freeSpace;
+  boolean TxOne = FALSE;
+  Std_ReturnType ret;
+
+  Sd_ClientServiceFindCheck(Instance, &lengthOfEntries, lengthOfOptions);
+  Sd_ServerServiceOfferCheck(Instance, &lengthOfEntries, &lengthOfOptions, &numOfOptions);
+
+  if (lengthOfEntries > 0u) {
+    offsetOfOptions = offsetOfEntries + lengthOfEntries + 4u;
+    freeSpace = lengthOfEntries + lengthOfOptions;
+    numOfOptions = 0u;
+    Sd_ClientServiceFindBuild(Instance, &offsetOfEntries, &freeSpace);
+    Sd_ServerServiceOfferBuild(Instance, &offsetOfEntries, &offsetOfOptions, &numOfOptions,
+                               &freeSpace);
+    Sd_BuildHeader(Instance->buffer, Instance->context->flags,
+                   Instance->context->multicastSessionId, lengthOfEntries, lengthOfOptions);
+    if (1u == Instance->context->multicastSessionId) {
+      /* @SWS_SD_00034, see the identical comment in Sd_ServerServiceFindServiceCheck(). */
+      Instance->context->flags &= ~SD_REBOOT_FLAG;
+    }
+    Instance->context->multicastSessionId++;
+    if (0u == Instance->context->multicastSessionId) {
+      Instance->context->multicastSessionId = 1u;
+    }
+
+    ret = Sd_Transmit(Instance->TxPdu.MulticastTxPduId, Instance->buffer,
+                      28u + lengthOfEntries + lengthOfOptions, NULL);
+    if (E_OK == ret) {
+      TxOne = TRUE;
+    }
+  }
+  if (FALSE == TxOne) {
+    TxOne = Sd_ServerServiceEventGroupAckCheck(Instance);
+  }
+  if (FALSE == TxOne) {
+    TxOne = Sd_ClientServiceSubscribeEventGroupCheck(Instance);
+  }
+}
+
+static Std_ReturnType Sd_ServerSoConModeChg(const Sd_InstanceType *Instance,
+                                            SoAd_SoConIdType SoConId, SoAd_SoConModeType Mode) {
+  Std_ReturnType ret = E_NOT_OK;
+  uint16_t i;
+  uint16_t j;
+  const Sd_ServerServiceType *config;
+  const Sd_EventHandlerType *EventHandler;
+  for (i = 0u; i < Instance->numOfServerServices; i++) {
+    config = &Instance->ServerServices[i];
+    for (j = 0u; j < config->numOfEventHandlers; j++) {
+      EventHandler = &config->EventHandlers[j];
+      if ((EventHandler->MulticastThreshold > 0u) &&
+          (EventHandler->MulticastEventSoConRef == SoConId)) {
+        if (SOAD_SOCON_OFFLINE == Mode) {
+          if (TRUE == EventHandler->context->isMulticastOpened) {
+            EventHandler->context->isMulticastOpened = FALSE;
+            ASLOG(SDE, ("Server Event Group %x multicast offline\n", EventHandler->EventGroupId));
+          }
+        } else {
+          if (FALSE == EventHandler->context->isMulticastOpened) {
+            EventHandler->context->isMulticastOpened = TRUE;
+            ASLOG(SDE, ("Server Event Group %x multicast online\n", EventHandler->EventGroupId));
+          }
+        }
+        ret = E_OK;
+      }
+    }
+  }
+
+  return ret;
+}
+
+static Std_ReturnType Sd_ClientSoConModeChg(const Sd_InstanceType *Instance,
+                                            SoAd_SoConIdType SoConId, SoAd_SoConModeType Mode) {
+  Std_ReturnType ret = E_NOT_OK;
+  uint16_t i;
+  uint16_t j;
+  const Sd_ClientServiceType *config;
+  const Sd_ConsumedEventGroupType *ConsumedEventGroup;
+  for (i = 0u; i < Instance->numOfClientServices; i++) {
+    config = &Instance->ClientServices[i];
+    for (j = 0u; j < config->numOfConsumedEventGroups; j++) {
+      ConsumedEventGroup = &config->ConsumedEventGroups[j];
+      if ((ConsumedEventGroup->MulticastThreshold > 0u) &&
+          (ConsumedEventGroup->MulticastEventSoConRef == SoConId)) {
+        if (SOAD_SOCON_OFFLINE == Mode) {
+          if (TRUE == ConsumedEventGroup->context->isSubscribed) {
+            ASLOG(SDE,
+                  ("Client Event Group %x multicast offline\n", ConsumedEventGroup->EventGroupId));
+          }
+        } else {
+          if (FALSE == ConsumedEventGroup->context->isSubscribed) {
+            ASLOG(SDE,
+                  ("Client Event Group %x multicast online\n", ConsumedEventGroup->EventGroupId));
+          }
+        }
+        ret = E_OK;
+      }
+    }
+  }
+  return ret;
+}
+/* ================================ [ FUNCTIONS ] ============================================== */
+void Sd_Init(const Sd_ConfigType *ConfigPtr) {
+  uint16_t i;
+  const Sd_InstanceType *Instance;
+  SoAd_SoConIdType SoConId;
+
+  if (NULL != ConfigPtr) {
+    sdConfigPtr = ConfigPtr;
+  } else {
+    sdConfigPtr = &Sd_Config;
+  }
+
+  for (i = 0u; i < SD_CONFIG->numOfInstances; i++) {
+    Instance = &SD_CONFIG->Instances[i];
+    Instance->context->flags = SD_REBOOT_FLAG | SD_UNICAST_FLAG;
+    Instance->context->multicastSessionId = 0x0001; /* @SWS_SD_00034 */
+    (void)SoAd_GetSoConId(Instance->TxPdu.MulticastTxPduId, &SoConId);
+    (void)SoAd_OpenSoCon(SoConId);
+    (void)SoAd_GetSoConId(Instance->TxPdu.UnicastTxPduId, &SoConId);
+    (void)SoAd_OpenSoCon(SoConId);
+    Sd_InitServerService(Instance);
+    Sd_InitClientService(Instance);
+  }
+}
+
+void Sd_SoConModeChg(SoAd_SoConIdType SoConId, SoAd_SoConModeType Mode) {
+  Std_ReturnType ret = E_NOT_OK;
+  uint16_t i;
+  const Sd_InstanceType *Instance;
+  for (i = 0u; i < SD_CONFIG->numOfInstances; i++) {
+    Instance = &SD_CONFIG->Instances[i];
+    if (SoConId == Instance->MulticastRxPdu.SoConId) {
+      if (SOAD_SOCON_OFFLINE == Mode) {
+        ASLOG(WARN, ("SD multicast socket offline\n"));
+      } else {
+        ret = E_OK;
+      }
+    } else if (SoConId == Instance->UnicastRxPdu.SoConId) {
+      if (SOAD_SOCON_OFFLINE == Mode) {
+        ASLOG(WARN, ("SD unicast socket offline\n"));
+      } else {
+        ret = E_OK;
+      }
+    } else {
+      /* multicast event socket */
+      ret = Sd_ServerSoConModeChg(Instance, SoConId, Mode);
+      if (E_OK != ret) {
+        ret = Sd_ClientSoConModeChg(Instance, SoConId, Mode);
+      }
+    }
+  }
+  if (E_OK != ret) {
+    ASLOG(SDE, ("SoConId %d Mode %d\n", SoConId, Mode));
+  }
+}
+
+/* This code logic looks weird, just check to ensure things in correct status */
+void Sd_RxIndication(PduIdType RxPduId, const PduInfoType *PduInfoPtr) {
+  uint16_t i;
+  boolean isMulticast = TRUE;
+  const Sd_InstanceType *Instance = NULL;
+  PCAP_TRACE(PduInfoPtr->SduDataPtr, PduInfoPtr->SduLength,
+             (TcpIp_SockAddrType *)PduInfoPtr->MetaDataPtr, TRUE);
+  for (i = 0u; i < SD_CONFIG->numOfInstances; i++) {
+    if (RxPduId == SD_CONFIG->Instances[i].MulticastRxPdu.RxPduId) {
+      Instance = &SD_CONFIG->Instances[i];
+    } else if (RxPduId == SD_CONFIG->Instances[i].UnicastRxPdu.RxPduId) {
+      Instance = &SD_CONFIG->Instances[i];
+      isMulticast = FALSE;
+    } else {
+      continue;
+    }
+
+    if (NULL != Instance) {
+      break;
+    }
+  }
+
+  if (NULL != Instance) {
+    Sd_HandleMsg(Instance, PduInfoPtr, isMulticast);
+  } else {
+    ASLOG(SDE, ("Rx with unknown PDU ID %d\n", RxPduId));
+  }
+}
+
+void Sd_MainFunction(void) {
+  uint16_t i;
+  boolean bLinkedUp = TcpIp_IsLinkedUp();
+  for (i = 0u; (TRUE == bLinkedUp) && (i < SD_CONFIG->numOfInstances); i++) {
+    Sd_ServerServiceMain(&SD_CONFIG->Instances[i]);
+    Sd_ClientServiceMain(&SD_CONFIG->Instances[i]);
+    Sd_ServerClientServiceMain(&SD_CONFIG->Instances[i]);
+  }
+}
+
+Std_ReturnType Sd_ServerServiceSetState(uint16_t SdServerServiceHandleId,
+                                        Sd_ServerServiceSetStateType ServerServiceState) {
+  const Sd_ServerServiceType *config;
+  Sd_ServerServiceContextType *context;
+  Std_ReturnType ret = E_NOT_OK;
+  if (SdServerServiceHandleId < SD_CONFIG->numOfServerServices) {
+    config = SD_CONFIG->ServerServicesMap[SdServerServiceHandleId];
+    context = config->context;
+    if (SD_SERVER_SERVICE_AVAILABLE == ServerServiceState) {
+      SD_SET(context->flags, SD_FLG_STATE_REQUEST_ONLINE);
+    } else {
+      SD_CLEAR(context->flags, SD_FLG_STATE_REQUEST_ONLINE);
+    }
+    ret = E_OK;
+  }
+
+  return ret;
+}
+Std_ReturnType Sd_ClientServiceSetState(uint16_t ClientServiceHandleId,
+                                        Sd_ClientServiceSetStateType ClientServiceState) {
+  const Sd_ClientServiceType *config;
+  Sd_ClientServiceContextType *context;
+  Std_ReturnType ret = E_NOT_OK;
+  if (ClientServiceHandleId < SD_CONFIG->numOfClientServices) {
+    config = SD_CONFIG->ClientServicesMap[ClientServiceHandleId];
+    context = config->context;
+    if (SD_CLIENT_SERVICE_REQUESTED == ClientServiceState) {
+      SD_SET(context->flags, SD_FLG_STATE_REQUEST_ONLINE);
+    } else {
+      SD_CLEAR(context->flags, SD_FLG_STATE_REQUEST_ONLINE);
+    }
+    ret = E_OK;
+  }
+
+  return ret;
+}
+
+Std_ReturnType
+Sd_ConsumedEventGroupSetState(uint16_t SdConsumedEventGroupHandleId,
+                              Sd_ConsumedEventGroupSetStateType ConsumedEventGroupState) {
+  Std_ReturnType ret = E_OK;
+  uint16_t index;
+  const Sd_ClientServiceType *config;
+  const Sd_ConsumedEventGroupType *ConsumedEventGroup;
+  if (SdConsumedEventGroupHandleId < SD_CONFIG->numOfConsumedEventGroups) {
+    index = SD_CONFIG->ConsumedEventGroupsMap[SdConsumedEventGroupHandleId];
+    config = SD_CONFIG->ClientServicesMap[index];
+    index = SD_CONFIG->PerServiceConsumedEventGroupsMap[SdConsumedEventGroupHandleId];
+    ConsumedEventGroup = &config->ConsumedEventGroups[index];
+    if (SD_CONSUMED_EVENTGROUP_REQUESTED == ConsumedEventGroupState) {
+      SD_SET(ConsumedEventGroup->context->flags, SD_FLG_STATE_REQUEST_ONLINE);
+    } else {
+      SD_CLEAR(ConsumedEventGroup->context->flags, SD_FLG_STATE_REQUEST_ONLINE);
+    }
+  } else {
+    ret = E_NOT_OK;
+  }
+  return ret;
+}
+
+Std_ReturnType Sd_ConsumedEventGroupGetState(
+  uint16_t SdConsumedEventGroupHandleId,
+  Sd_ConsumedEventGroupCurrentStateType *ConsumedEventGroupCurrentState) {
+  Std_ReturnType ret = E_OK;
+  uint16_t index;
+  const Sd_ClientServiceType *config;
+  const Sd_ConsumedEventGroupType *ConsumedEventGroup;
+  if (SdConsumedEventGroupHandleId < SD_CONFIG->numOfConsumedEventGroups) {
+    index = SD_CONFIG->ConsumedEventGroupsMap[SdConsumedEventGroupHandleId];
+    config = SD_CONFIG->ClientServicesMap[index];
+    index = SD_CONFIG->PerServiceConsumedEventGroupsMap[SdConsumedEventGroupHandleId];
+    ConsumedEventGroup = &config->ConsumedEventGroups[index];
+    if ((0u != (ConsumedEventGroup->context->flags & SD_FLG_STATE_REQUEST_ONLINE)) &&
+        (TRUE == ConsumedEventGroup->context->isSubscribed)) {
+      *ConsumedEventGroupCurrentState = SD_CONSUMED_EVENTGROUP_AVAILABLE;
+    } else {
+      *ConsumedEventGroupCurrentState = SD_CONSUMED_EVENTGROUP_DOWN;
+    }
+  } else {
+    ret = E_NOT_OK;
+  }
+  return ret;
+}
+
+Std_ReturnType Sd_GetSubscribers(uint16_t EventHandlerId,
+                                 Sd_EventHandlerSubscriberListType **list) {
+  Std_ReturnType ret = E_OK;
+  uint16_t index;
+  const Sd_ServerServiceType *config;
+  const Sd_EventHandlerType *EventHandler;
+  Sd_EventHandlerContextType *context;
+  if (EventHandlerId < SD_CONFIG->numOfEventHandlers) {
+    index = SD_CONFIG->EventHandlersMap[EventHandlerId];
+    config = SD_CONFIG->ServerServicesMap[index];
+    index = SD_CONFIG->PerServiceEventHandlerMap[EventHandlerId];
+    EventHandler = &config->EventHandlers[index];
+    context = EventHandler->context;
+    if (STAILQ_EMPTY(&context->listEventHandlerSubscribers)) {
+      ret = E_NOT_OK;
+    } else {
+      *list = &context->listEventHandlerSubscribers;
+    }
+  } else {
+    ret = E_NOT_OK;
+  }
+  return ret;
+}
+
+void Sd_RemoveSubscriber(uint16_t EventHandlerId, PduIdType TxPduId) {
+  uint16_t index;
+  const Sd_ServerServiceType *config;
+  const Sd_EventHandlerType *EventHandler;
+  Sd_EventHandlerContextType *context;
+  DEC_SQP(EventHandlerSubscriber);
+  if (EventHandlerId < SD_CONFIG->numOfEventHandlers) {
+    index = SD_CONFIG->EventHandlersMap[EventHandlerId];
+    config = SD_CONFIG->ServerServicesMap[index];
+    index = SD_CONFIG->PerServiceEventHandlerMap[EventHandlerId];
+    EventHandler = &config->EventHandlers[index];
+    context = EventHandler->context;
+    SQP_WHILE(EventHandlerSubscriber) {
+      if (var->TxPduId == TxPduId) {
+        EventHandler->onSubscribe(FALSE, &var->RemoteAddr);
+        SQP_CRM_AND_FREE(EventHandlerSubscriber, var);
+      }
+    }
+    SQP_WHILE_END()
+  }
+}
+
+void Sd_NotifyServiceOffline(uint16_t SdServerServiceHandleId) {
+  const Sd_ServerServiceType *config;
+  Sd_ServerServiceContextType *context;
+  if (SdServerServiceHandleId < SD_CONFIG->numOfServerServices) {
+    config = SD_CONFIG->ServerServicesMap[SdServerServiceHandleId];
+    context = config->context;
+    if (0 != (SD_FLG_LINK_UP & context->flags)) {
+      ASLOG(SDE, ("SOCK[%u] server service %x:-:%x offline unexpected\n", config->SoConId,
+                  config->ServiceId, config->InstanceId));
+      SD_CLEAR(context->flags, SD_FLG_LINK_UP);
+      Sd_ServerServiceLinkControl(config);
+    }
+  }
+}
+
+Std_ReturnType Sd_GetProviderAddr(uint16_t ClientServiceHandleId, TcpIp_SockAddrType *RemoteAddr) {
+  const Sd_ClientServiceType *config;
+  Sd_ClientServiceContextType *context;
+  Std_ReturnType ret = E_OK;
+  if (ClientServiceHandleId < SD_CONFIG->numOfClientServices) {
+    config = SD_CONFIG->ClientServicesMap[ClientServiceHandleId];
+    context = config->context;
+    if ((context->isOffered) && (context->flags & SD_FLG_LINK_UP)) {
+      *RemoteAddr = context->RemoteAddr;
+    } else {
+      ret = E_NOT_OK;
+    }
+  } else {
+    ret = E_NOT_OK;
+  }
+  return ret;
+}
+
+Std_ReturnType Sd_HeaderIndication(PduIdType RxPduId, const PduInfoType *info,
+                                   uint32_t *payloadLength) {
+  Std_ReturnType ret = E_OK;
+  uint8_t *data = info->SduDataPtr;
+  (void)RxPduId;
+
+  if (info->SduLength < 8u) {
+    ASLOG(SDE, ("malformed SD message\n"));
+    ret = E_NOT_OK;
+  }
+
+  if (E_OK == ret) {
+    if ((0xFFu != data[0]) || (0xFFu != data[1]) || (0x81u != data[2]) || (0x00u != data[3])) {
+      ASLOG(SDE, ("invalid SD message ID\n"));
+      ret = E_NOT_OK;
+    } else {
+      *payloadLength =
+        ((uint32_t)data[4] << 24) + ((uint32_t)data[5] << 16) + ((uint32_t)data[6] << 8) + data[7];
+    }
+  }
+
+  return ret;
+}
+
+void Sd_GetVersionInfo(Std_VersionInfoType *versionInfo) {
+  DET_VALIDATE(NULL != versionInfo, 0x02, SD_E_PARAM_POINTER, return);
+
+  versionInfo->vendorID = STD_VENDOR_ID_AS;
+  versionInfo->moduleID = MODULE_ID_SD;
+  versionInfo->sw_major_version = 4;
+  versionInfo->sw_minor_version = 0;
+  versionInfo->sw_patch_version = 0;
+}

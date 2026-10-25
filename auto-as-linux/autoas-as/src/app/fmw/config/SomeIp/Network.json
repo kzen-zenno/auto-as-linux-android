@@ -1,0 +1,94 @@
+{
+  "_comment": "VehicleStateService (SYS-002 / SWARCH-002), Gateway ECU side. Fixed-length schema per autoas-as/src/app/fmw/README.md 3.3: LkvEntry is a fixed-size struct, entries[] is a bounded array (variable_array + size = max signal count), not the self-describing variable-length TLV in SYS-002 draft v1. Native SomeIp/SomeIpXf/Sd/SoAd stack, plain-C skeleton (SomeIp_SkeletonC).",
+  "class": "Net",
+  "Modules": [
+    {
+      "name": "SomeIp",
+      "class": "SomeIp",
+      "SD": {
+        "hostname": "fmw",
+        "multicast": "224.244.224.245"
+      },
+      "structs": [
+        {
+          "name": "LkvEntry",
+          "data": [
+            { "name": "keyId", "type": "uint16" },
+            { "name": "quality", "type": "uint8" },
+            { "name": "confidence", "type": "uint8" },
+            { "name": "timestampMs", "type": "uint64" },
+            { "name": "ageMs", "type": "uint32" },
+            { "name": "value", "type": "float" }
+          ]
+        },
+        {
+          "name": "VehicleStateMessage",
+          "data": [
+            { "name": "schemaVersion", "type": "uint16" },
+            { "name": "entries", "type": "LkvEntry", "variable_array": true, "size": 16 }
+          ]
+        },
+        {
+          "name": "WriteRequest",
+          "data": [
+            { "name": "entries", "type": "LkvEntry", "variable_array": true, "size": 5 }
+          ]
+        },
+        {
+          "name": "WriteResponse",
+          "data": [
+            { "name": "resultCode", "type": "uint8" },
+            { "name": "failedEntryIndex", "type": "uint8" },
+            { "name": "entries", "type": "LkvEntry", "variable_array": true, "size": 5 }
+          ]
+        }
+      ],
+      "args": [
+        { "name": "write-args", "args": [ { "name": "request", "type": "WriteRequest" } ] }
+      ],
+      "servers": [
+        {
+          "name": "VehicleState",
+          "service": "0x1770",
+          "instance": "0x0001",
+          "clientId": "0x1770",
+          "protocol": "TCP",
+          "reliable": 30512,
+          "_comment_major": "SYS-002 3.1 requires Major Version 1. This must be carried in the SD OFFER entry: vsomeip's routing_manager_impl::add_routing_info() only wires up a remote service (TCP connect -> on_availability) when the offered major equals the client's requested major, equals DEFAULT_MAJOR, or the client asked for ANY_MAJOR -- and vsomeip patches DEFAULT_MAJOR to 0x01 (\"works better with autosar\", interface/vsomeip/constants.hpp), so an offered major of 0 silently matches nothing. Sd.c's own subscribe path compares the same way (SD_ANY_MAJOR_VERSION or exact match), so major 1 is also what makes vsomeip's SUBSCRIBE acceptable here. Keep the per-method/per-event \"version\" (= SOME/IP header interface version) equal to this.",
+          "major": "0x01",
+          "minor": "0x00000000",
+          "methods": [
+            {
+              "name": "GetVehicleStateSnapshot",
+              "methodId": "0x0001",
+              "return": "VehicleStateMessage",
+              "version": "1"
+            },
+            {
+              "name": "WriteVehicleState",
+              "methodId": "0x0002",
+              "args": "write-args",
+              "return": "WriteResponse",
+              "version": "1"
+            }
+          ],
+          "event-groups": [
+            {
+              "name": "EventGroupVehicleState",
+              "groupId": "0x0001",
+              "enable_multicast": false,
+              "events": [
+                {
+                  "name": "EvVehicleState",
+                  "eventId": "0x8001",
+                  "type": "VehicleStateMessage",
+                  "version": "1"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

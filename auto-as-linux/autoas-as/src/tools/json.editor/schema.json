@@ -1,0 +1,1561 @@
+[
+  {
+    "title" : "Dcm", "type": "object",
+    "properties": {
+      "ServiceVerification": { "type": "string", "default": "NULL", "description": "service verification hook" },
+      "timings": { "title": "timings", "type": "object",
+        "properties": {
+          "S3Server": { "type": "integer", "default": 5000, "minimum": 0,"maximum": 100000 },
+          "P2ServerAjust": { "type": "integer", "default": 20, "minimum": 0,"maximum": 100000 },
+          "P2StarServerAdjust": { "type": "integer", "default": 100, "minimum": 0,"maximum": 100000 },
+          "P2ServerMax": { "type": "integer", "default": 50, "minimum": 0,"maximum": 100000 },
+          "P2StarServerMax": { "type": "integer", "default": 5000, "minimum": 0,"maximum": 100000 }
+        }
+      },
+      "EnableGlobalReadDtcSubFunctions": { "type": "bool", "default": false },
+      "ReadDtcSubFunctions": {
+        "type": "array", "enabled": "'${/Dcm/EnableGlobalReadDtcSubFunctions}' == 'True'", "items": {
+          "type": "object", "title": "SubFunction",
+          "properties": {
+            "name": { "type": "string", "map": {
+                "ReportNumberOfDTCByStatusMask": { "type": 0 },
+                "ReportDTCByStatusMask": { "type": 2 },
+                "ReportDTCSnapshotIdentification": { "type": 3 },
+                "ReportDTCSnapshotRecordByDTCNumber": { "type": 4 },
+                "ReportDTCExtendedDataRecordByDTCNumber": { "type": 5 },
+                "ReportSupportedDTC": { "type": "0x0A" },
+                "ReportMirrorMemoryDTCByStatusMask": { "type": "0x0F" },
+                "ReportMirrorMemoryDTCExtendedDataRecordByDTCNumber": { "type": "0x10" },
+                "ReportNumberOfMirrorMemoryDTCByStatusMask": { "type": "0x11" }
+                },
+              "friends": ["type"] },
+            "type": { "type": "hide" },
+            "sessions": { "type": "array", "items": { "type": "string", "title": "session", "enumref": "/Dcm/sessions:name"} },
+            "securities": { "type": "array", "items": { "type": "string", "title": "security", "enumref": "/Dcm/securities:name"} },
+            "access": { "type": "array", "items": { "type": "string", "title": "access", "enum": ["physical", "functional"]} }
+          }
+        }
+      },
+      "channels": {
+        "type": "array",
+        "items": { "title": "channel", "type": "object",
+          "properties": {
+            "name": { "type": "string", "editable": true, "default": "", "enum": ["P2P", "P2A"],
+              "description": "name must starts with P2A for functional request channel!" }
+          }
+        }
+      },
+      "security": {
+        "title": "security", "type": "object",
+        "properties": {
+          "NumAtt": { "type": "integer", "default": 3, "minimum": 1,"maximum": 255 },
+          "DelayTime": { "type": "integer", "default": 3000, "minimum": 0,"maximum": 100000 }
+        }
+      },
+      "buffer": {
+        "title": "buffer", "type": "object",
+        "properties": {
+          "rx": { "type": "integer", "default": 512, "minimum": 64,"maximum": 4095 },
+          "tx": { "type": "integer", "default": 512, "minimum": 64,"maximum": 4095 }
+        }
+      },
+      "sessions": {
+        "type": "array", "items": {
+          "type": "object", "title": "session",
+          "properties": {
+            "name": { "type": "string" },
+            "id": { "type": "integer", "format": "hex", "minimum": 1,"maximum": 255, "description": "diagnostic session identifier" }
+          }
+        }
+      },
+      "securities": {
+        "type": "array", "items": {
+          "type": "object", "title": "security",
+          "properties": {
+            "name": { "type": "string" },
+            "level": { "type": "integer", "default": 1, "minimum": 1,"maximum": 254 },
+            "size": { "type": "integer", "default": 4, "minimum": 1,"maximum": 255 },
+            "sessions": { "type": "array", "items": { "type": "string", "title": "session", "enumref": "/Dcm/sessions:name"} },
+            "API": {
+              "type": "object", "title": "API",
+              "properties": {
+                "seed": { "type": "string", "default": "Xxx_Get${../name}SessionSeed" },
+                "key": { "type": "string", "default": "Xxx_Compare${../name}SessionKey" }
+              }
+            }
+          }
+        }
+      },
+      "memories": {
+        "type": "array", "items": {
+          "type": "object", "title": "memory",
+          "properties": {
+            "name": { "type": "string" },
+            "low": { "type": "integer", "format": "hex", "default": 0, "minimum": 0,"maximum": 4294967295 },
+            "high": { "type": "integer", "format": "hex", "default": 1048576, "minimum": 0,"maximum": 4294967295 },
+            "attr": {"type": "string", "default": "rw", "enum": ["r", "w", "rw"]},
+            "sessions": { "type": "array", "items": { "type": "string", "title": "session", "enumref": "/Dcm/sessions:name"} },
+            "securities": { "type": "array", "items": { "type": "string", "title": "security", "enumref": "/Dcm/securities:name"} },
+            "access": { "type": "array", "items": { "type": "string", "title": "access", "enum": ["physical", "functional"]} }
+          }
+        }
+      },
+      "memory.format": {
+        "type": "array",
+        "items": { "type": "integer", "title": "memory.format", "format":"hex", "default": "0x44", "minimum": 1,"maximum": 255 }
+      },
+      "services": {
+        "type": "array", "items": {
+          "type": "object", "title": "service", "orders": ["name"], "display_with_list": false,
+          "properties": {
+            "name": { "type": "string", "map": { 
+                "Session Control": { "id": "0x10", "extend": true },
+                "Ecu Reset": { "id": "0x11", "extend": true },
+                "Clear DTC": { "id": "0x14" },
+                "Read DTC": { "id": "0x19", "extend": true },
+                "Read DID": { "id": "0x22", "extend": true },
+                "Read Memory by Address": { "id": "0x23" },
+                "Read Scaling DID": { "id": "0x24", "extend": true },
+                "Security Access": { "id": "0x27" },
+                "Communication Control": { "id": "0x28", "extend": true },
+                "Authentication": { "id": "0x29", "extend": true },
+                "Read Periodic DID": { "id": "0x2A", "extend": true },
+                "Dynamic Define DID": { "id": "0x2C" },
+                "Write DID": { "id": "0x2E", "extend": true },
+                "IO Control": { "id": "0x2F", "extend": true },
+                "Routine Control": { "id": "0x31", "extend": true },
+                "Request Download": { "id": "0x34", "extend": true },
+                "Request Upload": { "id": "0x35", "extend": true },
+                "Transfer Data": { "id": "0x36", "extend": true },
+                "Request Transfer Exit": { "id": "0x37", "extend": true },
+                "Write Memory by Address": { "id": "0x3D" },
+                "Tester Present": { "id": "0x3E" },
+                "Control DTC Setting": { "id": "0x85" }
+              },
+              "friends": ["id"] },
+            "id": { "type": "hide" },
+            "sessions": { "type": "array", "items": { "type": "string", "title": "session", "enumref": "/Dcm/sessions:name"} },
+            "securities": { "type": "array", "items": { "type": "string", "title": "security", "enumref": "/Dcm/securities:name"} },
+            "access": { "type": "array", "items": { "type": "string", "title": "access", "enum": ["physical", "functional"]} }
+          },
+          "extends": {
+            "Session Control": {
+              "API": { "type": "string", "default": "Xxx_GetSessionChangePermission" }
+            },
+            "Ecu Reset": {
+              "API": { "type": "string", "default": "Xxx_GetEcuResetPermission" },
+              "delay": { "type": "integer", "format": "dec", "default": 100, "minimum": 0,"maximum": 655350 }
+            },
+            "Read DTC" : {
+              "functions": {
+                "enabled": "'${/Dcm/EnableGlobalReadDtcSubFunctions}' == 'False'",
+                "type": "array", "items": {
+                  "type": "object", "title": "SubFunction",
+                  "properties": {
+                    "name": { "type": "string", "map": {
+                        "ReportNumberOfDTCByStatusMask": { "type": 0 },
+                        "ReportDTCByStatusMask": { "type": 2 },
+                        "ReportDTCSnapshotIdentification": { "type": 3 },
+                        "ReportDTCSnapshotRecordByDTCNumber": { "type": 4 },
+                        "ReportDTCExtendedDataRecordByDTCNumber": { "type": 5 },
+                        "ReportSupportedDTC": { "type": "0x0A" },
+                        "ReportMirrorMemoryDTCByStatusMask": { "type": "0x0F" },
+                        "ReportMirrorMemoryDTCExtendedDataRecordByDTCNumber": { "type": "0x10" },
+                        "ReportNumberOfMirrorMemoryDTCByStatusMask": { "type": "0x11" }
+                        },
+                      "friends": ["type"] },
+                    "type": { "type": "hide" },
+                    "sessions": { "type": "array", "items": { "type": "string", "title": "session", "enumref": "/Dcm/sessions:name"} },
+                    "securities": { "type": "array", "items": { "type": "string", "title": "security", "enumref": "/Dcm/securities:name"} },
+                    "access": { "type": "array", "items": { "type": "string", "title": "access", "enum": ["physical", "functional"]} }
+                  }
+                }
+              }
+            },
+            "Read DID" : {
+              "DIDs": {
+                "type": "array", "items": {
+                  "type": "object", "title": "DID",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "id": { "type": "integer", "format": "hex", "default": "0xFFFF", "minimum": 0, "maximum": 65535 },
+                    "size": { "type": "integer", "default": 8, "minimum": 1,"maximum": 65535, "description": "Maximum size when dynamicLength is true" },
+                    "dynamicLength": { "type": "bool", "default": false },
+                    "API": { "type": "string", "default": "Xxx_ReadDID${name}" },
+                    "sessions": { "type": "array", "items": { "type": "string", "title": "session", "enumref": "/Dcm/sessions:name"} },
+                    "securities": { "type": "array", "items": { "type": "string", "title": "security", "enumref": "/Dcm/securities:name"} },
+                    "access": { "type": "array", "items": { "type": "string", "title": "access", "enum": ["physical", "functional"]} }
+                  }
+                }
+              }
+            },
+            "Read Scaling DID" : {
+              "DIDs": {
+                "type": "array", "items": {
+                  "type": "object", "title": "DID",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "id": { "type": "integer", "format": "hex", "default": "0xFFFF", "minimum": 0,"maximum": 65535 },
+                    "size": { "type": "integer", "default": 8, "minimum": 1,"maximum": 65535 },
+                    "API": { "type": "string", "default": "Xxx_ReadScalingDID${name}" },
+                    "sessions": { "type": "array", "items": { "type": "string", "title": "session", "enumref": "/Dcm/sessions:name"} },
+                    "securities": { "type": "array", "items": { "type": "string", "title": "security", "enumref": "/Dcm/securities:name"} },
+                    "access": { "type": "array", "items": { "type": "string", "title": "access", "enum": ["physical", "functional"]} }
+                  }
+                }
+              }
+            },
+            "Communication Control" : {
+              "functions": {
+                "type": "array", "items": {
+                  "type": "object", "title": "function",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "id": { "type": "integer", "minimum": 0,"maximum": 255 },
+                    "API": { "type": "string", "default": "Xxx_CommCtrl_${id}" }
+                  }
+                }
+              }
+            },
+            "Authentication": {
+              "functions": {
+                "type": "array", "items": {
+                  "type": "object", "title": "function",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "id": { "type": "integer", "format": "hex", "default": "0xFF", "minimum": 0,"maximum": 255 }
+                  }
+                }
+              }
+            },
+            "Read Periodic DID": {
+              "DIDs": {
+                "type": "array", "items": {
+                  "type": "object", "title": "DID",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "id": { "type": "integer", "format": "hex", "default": "0xFF", "minimum": 0,"maximum": 255 },
+                    "size": { "type": "integer", "default": 8, "minimum": 1,"maximum": 65535 },
+                    "API": { "type": "string", "default": "Xxx_ReadDID${name}" },
+                    "sessions": { "type": "array", "items": { "type": "string", "title": "session", "enumref": "/Dcm/sessions:name"} },
+                    "securities": { "type": "array", "items": { "type": "string", "title": "security", "enumref": "/Dcm/securities:name"} },
+                    "access": { "type": "array", "items": { "type": "string", "title": "access", "enum": ["physical", "functional"]} }
+                  }
+                }
+              }
+            },
+            "Write DID" : {
+              "DIDs": {
+                "type": "array", "items": {
+                  "type": "object", "title": "DID",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "id": { "type": "integer", "format": "hex", "default": "0xFFFF", "minimum": 0,"maximum": 65535 },
+                    "size": { "type": "integer", "default": 8, "minimum": 1,"maximum": 65535 },
+                    "API": { "type": "string", "default": "Xxx_WriteDID${name}" },
+                    "sessions": { "type": "array", "items": { "type": "string", "title": "session", "enumref": "/Dcm/sessions:name"} },
+                    "securities": { "type": "array", "items": { "type": "string", "title": "security", "enumref": "/Dcm/securities:name"} },
+                    "access": { "type": "array", "items": { "type": "string", "title": "access", "enum": ["physical", "functional"]} }
+                  }
+                }
+              }
+            },
+            "IO Control" : {
+              "IOCTLs": {
+                "type": "array", "items": {
+                  "type": "object", "title": "IOCTL",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "id": { "type": "integer", "format": "hex", "default": "0xFFFF", "minimum": 0,"maximum": 65535 },
+                    "actions": {
+                      "type": "array", "items": {
+                        "type": "object", "title": "action",
+                        "properties": {
+                          "name": { "type": "string", "map": { 
+                            "ReturnControlToEcu": { "id": 0 },
+                            "ResetToDefault": { "id": 1 },
+                            "FreezeCurrentState": { "id": 2 },
+                            "ShortTermAdjustment": { "id": 3 }
+                          },
+                          "friends": ["id"] },
+                          "id": { "type": "hide" },
+                          "API": { "type": "string", "default": "Xxx_IOCtl_${../../name}_${name}" }
+                        }
+                      }
+                    },
+                    "sessions": { "type": "array", "items": { "type": "string", "title": "session", "enumref": "/Dcm/sessions:name"} },
+                    "securities": { "type": "array", "items": { "type": "string", "title": "security", "enumref": "/Dcm/securities:name"} },
+                    "access": { "type": "array", "items": { "type": "string", "title": "access", "enum": ["physical", "functional"]} }
+                  }
+                }
+              }
+            },
+            "Routine Control": {
+              "routines": {
+                "type": "array", "items": {
+                  "type": "object", "title": "routine",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "id": { "type": "integer", "format": "hex", "default": "0xFFFF", "minimum": 0,"maximum": 65535 },
+                    "API": {
+                      "type": "object", "title": "API",
+                      "properties": {
+                        "start": { "type": "string", "default": "Xxx_Start${../name}", "description": "can be NULL if not used" },
+                        "stop": { "type": "string", "default": "NULL", "description": "can be NULL if not used" },
+                        "result": { "type": "string", "default": "NULL", "description": "can be NULL if not used" }
+                      }
+                    },
+                    "sessions": { "type": "array", "items": { "type": "string", "title": "session", "enumref": "/Dcm/sessions:name"} },
+                    "securities": { "type": "array", "items": { "type": "string", "title": "security", "enumref": "/Dcm/securities:name"} },
+                    "access": { "type": "array", "items": { "type": "string", "title": "access", "enum": ["physical", "functional"]} }
+                  }
+                }
+              }
+            },
+            "Request Download": {
+              "API": { "type": "string", "default": "Xxx_ProcessRequestDownload" }
+            },
+            "Request Upload": {
+              "API": { "type": "string", "default": "Xxx_ProcessRequestUpload" }
+            },
+            "Transfer Data": {
+              "API": { 
+                "type": "object", "title": "API",
+                "properties": {
+                  "write": { "type": "string", "default": "Xxx_ProcessTransferDataWrite", "description": "can be NULL if not used" },
+                  "read": { "type": "string", "default": "Xxx_ProcessTransferDataRead", "description": "can be NULL if not used" }
+                }
+              }
+            },
+            "Request Transfer Exit": {
+              "API": { "type": "string", "default": "Xxx_ProcessRequestTransferExit" }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "title" : "OS", "type": "object",
+    "properties": {
+      "CPU_CORE_NUMBER": { "type": "integer", "default": 1, "minimum": 1,"maximum": 255 },
+      "PTHREAD": { "type": "integer", "default": 32, "minimum": 1,"maximum": 255 },
+      "PTHREAD_PRIORITY": { "type": "integer", "default": 32, "minimum": 1,"maximum": 255 },
+      "StartupHook": { "type": "bool", "default": true },
+      "TaskList": {
+        "type": "array", "items": {
+          "type": "object", "title": "Task",
+          "properties": {
+            "name": { "type": "string" },
+            "Priority": { "type": "integer", "default": 8, "minimum": 1,"maximum": 255 },
+            "StackSize": { "type": "integer", "default": 512, "minimum": 128,"maximum": 65535 },
+            "AutoStart": { "type": "bool", "default": true },
+            "Cpu": { "type": "integer", "default": 0, "minimum": 0,"maximum": 31 },
+            "EventList": {
+              "type": "array", "items": {
+                "type": "object", "title": "Event",
+                "properties": {
+                  "name": { "type": "string" },
+                  "Mask": { "type": "integer", "format": "hex", "default": "0x01", "minimum": 1,"maximum": 4294967295 }
+                }
+              }
+            }
+          }
+        }
+      },
+      "InternalResource": {
+        "type": "array", "items": {
+          "type": "object", "title": "InternalResource",
+          "properties": {
+            "name": { "type": "string" },
+            "Priority": { "type": "integer", "default": 8, "minimum": 1,"maximum": 255 }
+          }
+        }
+      },
+      "ResourceList": {
+        "type": "array", "items": {
+          "type": "object", "title": "Resource",
+          "properties": {
+            "name": { "type": "string" },
+            "Priority": { "type": "integer", "default": 8, "minimum": 1,"maximum": 255 }
+          }
+        }
+      },
+      "CounterList": {
+        "type": "array", "items": {
+          "type": "object", "title": "Counter",
+          "properties": {
+            "name": { "type": "string" },
+            "MaxAllowed": { "type": "integer", "default": 65535, "minimum": 1,"maximum": 2147483647 },
+            "MinCycle": { "type": "integer", "default": 1, "minimum": 1,"maximum": 65535 },
+            "TicksPerBase": { "type": "integer", "default": 1, "minimum": 1,"maximum": 65535 }
+          }
+        }
+      },
+      "AlarmList": {
+        "type": "array", "items": {
+          "type": "object", "title": "Alarm", "orders": ["name", "Driver", "Action", "Task", "Event", "Counter"],
+          "properties": {
+            "name": { "type": "string" },
+            "Driver": { "type": "string", "enumref": "/OS/CounterList:name", "description": "Counter used to drive this Alarm" },
+            "Action": { "type": "string", "default": "ACTIVATETASK",  "enum": ["ACTIVATETASK", "SETEVENT", "CALLBACK", "SIGNALCOUNTER"] },
+            "Task": { "type": "string", "enumref": "/OS/TaskList:name", "enabled": "'${Action}' == 'ACTIVATETASK' or '${Action}' == 'SETEVENT'"  },
+            "Event": { "type": "string", "enumref": "/OS/TaskList/${Task}/EventList:name", "enabled": "'${Action}' == 'SETEVENT'" },
+            "Counter": { "type": "string", "enumref": "/OS/CounterList:name", "enabled": "'${Action}' == 'SIGNALCOUNTER'" }
+          }
+        }
+      }
+    }
+  },
+  {
+    "title" : "Dem", "type": "object",
+    "properties": {
+      "conditions": {
+        "type": "array", "items": {
+          "type": "object", "title": "condition",
+          "properties": {
+            "name": { "type": "string" }
+          }
+        }
+      },
+      "Memorys": {
+        "type": "array", "items": {
+          "type": "object", "title": "memory",
+          "properties": {
+            "name": { "type": "string", "editable": true, "enum": ["Primary", "Mirror"] },
+            "origin": { "type": "integer", "format": "hex", "default": 1, "minimum": 0,"maximum": 65535 }
+          }
+        }
+      },
+      "DTCs": {
+        "type": "array", "items": {
+          "type": "object", "title": "DTC",
+          "properties": {
+            "name": { "type": "string" },
+            "number": { "type": "string" },
+            "priority": { "type": "integer", "default": 8, "minimum": 1,"maximum": 255 },
+            "destination": {
+              "type": "array", "items": { "title": "destination", "type": "string", "enumref": "/Dem/Memorys:name" }
+            },
+            "Environments": {
+              "type": "array", "items": { "title": "Environment", "type": "string", "enumref": "/Dem/Environments:name" }
+            },
+            "conditions": {
+              "type": "array", "items": { "title": "condition", "editable": true, "type": "string", "enumref": "/Dem/conditions:name" }
+            },
+            "is_group": { "type": "bool", "default": false, "description": "the DTC is a group of events that combined" },
+            "events": {
+              "type": "array", "enabled": "'${../is_group}' == 'True'", "items": {
+                "type": "object", "title": "event",
+                "properties": {
+                  "name": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      },
+      "Environments": {
+        "type": "array", "items": {
+          "type": "object", "title": "Environment",
+          "properties": {
+            "name": { "type": "string" },
+            "id": {  "type": "integer", "format": "hex", "default": "0x1001", "minimum": 1,"maximum": 65535 },
+            "type": { "type": "string", "default": "uint16", "enum": ["uint8", "uint16", "uint32", "struct"] },
+            "unit": { "type": "string" },
+            "data": {
+              "type": "array", "enabled": "'${../type}' == 'struct'",
+              "items": {
+                "type": "object", "title": "data",
+                "properties": {
+                  "name": { "type": "string" },
+                  "type": { "type": "string", "default": "uint16", "enum": ["uint8", "uint16", "uint32"] }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ExtendedDatas": {
+        "type": "array", "items": {
+          "type": "object", "title": "ExtendedData",
+          "properties": {
+            "name": { "type": "string" },
+            "type": { "type": "string", "default": "uint16", "enum": ["uint8", "uint16", "uint32"] }
+          }
+        }
+      }
+    }
+  },
+  {
+    "title" : "NvM", "type": "object",
+    "properties": {
+      "target": { "type": "string", "default": "Fee", "enum": ["Fee", "Ea"] },
+      "banks": {
+        "type": "array", "enabled": "'${/NvM/target}' == 'Fee'", "items": {
+          "type": "object", "title": "bank",
+          "properties": {
+            "name": { "type": "string", "description": "name of the flash bank" },
+            "address": { "type": "integer", "default": 0, "description": "the start address of the flash bank" },
+            "size": { "type": "integer", "default": 32768, "description": "the size of the flash bank" },
+            "repeat": { "type": "integer", "default": 1, "minimum": 1,"maximum": 65535, "description": "how many this kind of banks continuously" }
+          }
+        }
+       },
+      "blocks": {
+        "type": "array", "items": {
+          "type": "object", "title": "block",
+          "properties": {
+            "name": { "type": "string", "description": "name end with '{}' means repeatable array" },
+            "NumberOfWriteCycles": { "type": "integer", "default": 10000000 },
+            "repeat": { "type": "integer", "default": 1, "minimum": 1,"maximum": 65535, "enabled": "'${name}'[-2:] == '{}'" },
+            "data": {
+              "type": "array", "items": {
+                "type": "object", "title": "data",
+                "properties": {
+                  "name": { "type": "string", "description": "name end with '{}' means repeatable array" },
+                  "repeat": { "type": "integer", "default": 1, "minimum": 1,"maximum": 65535, "enabled": "'${name}'[-2:] == '{}'" },
+                  "type": { "type": "string", "default": "uint16", "enum": ["uint8", "uint16", "uint32", "uint8_n", "uint16_n", "uint32_n"] },
+                  "size": { "type": "integer", "default": 1, "minimum": 1,"maximum": 65535, "enabled": "'${type}'[-2:] == '_n'" },
+                  "default": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+       }
+    }
+  },
+  {
+    "title" : "EcuC", "type": "object",
+    "properties": {
+      "Pdus": {
+        "type": "array", "items": {
+          "type": "object", "title": "Pdu",
+          "properties": {
+            "name": { "type": "string" },
+            "size": { "type": "integer", "default": 64, "minimum": 1, "maximum": 65535, "description": "bit size" }
+          }
+        }
+      }
+    }
+  },
+  {
+    "title": "CanIf", "type": "object",
+    "properties": {
+      "networks": {
+        "type": "array", "items": {
+          "type": "object", "title": "network", "display_with_list": false,
+          "properties": {
+            "name": { "type": "string", "default": "CAN?" },
+            "me": { "type": "string", "default": "AS", "description": "self node name" },
+            "use_dbc": { "type": "bool", "default": false },
+            "dbc": { "type": "string", "default": "", "description": "the path to a Vector CAN DBC file", "enabled": "'${use_dbc}' == 'True'" },
+            "TxTimeout": { "type": "integer", "default": 100 },
+            "NumHth": { "type": "integer", "default": 1, "description": "depends on the CanAc implementation, generally 1" },
+            "NumHrh": { "type": "integer", "default": 1, "description": "not used now, generally 1" },
+            "ignore": {
+              "type": "array", "items": {
+                "title": "Pdu", "type": "string", "default": "Xyz", "description": "the PDU ignored in the DBC file"
+              }, "enabled": "'${../use_dbc}' == 'True'"
+            },
+            "RxPdus": {
+              "type": "array", "items": {
+                "type": "object", "title": "RxPdu",
+                "properties": {
+                  "name": { "type": "string", "editable": true, "enumref": "/EcuC/Pdus:name" },
+                  "id": { "type": "integer", "format": "hex", "default": 0, "minimum": 0, "maximum": 4294967295 },
+                  "hoh": { "type": "integer", "default": 0, "minimum": 0, "maximum": 65535 },
+                  "use_mask": { "type": "bool", "default": false },
+                  "mask": { "type": "integer", "format": "hex", "default": 0, "minimum": 0, "maximum": 4294967295, "enabled": "'${use_mask}' == 'True'" },
+                  "up": { "type": "string", "editable": true, "enum": ["CanTp", "OsekNm", "CanNm", "PduR", "Xcp", "J1939Tp"] }
+                }
+              }
+            },
+            "TxPdus": {
+              "type": "array", "items": {
+                "type": "object", "title": "TxPdu",
+                "properties": {
+                  "name": { "type": "string", "editable": true, "enumref": "/EcuC/Pdus:name" },
+                  "id": { "type": "integer", "format": "hex", "default": 0, "minimum": 0, "maximum": 4294967295 },
+                  "hoh": { "type": "integer", "default": 0, "minimum": 0, "maximum": 65535 },
+                  "dynamic": { "type": "bool", "default": false },
+                  "up": { "type": "string", "editable": true, "enum": ["CanTp", "OsekNm", "CanNm", "PduR", "Com", "Xcp", "J1939Tp"] }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "title": "LinIf", "type": "object",
+    "properties": {
+      "networks": {
+        "type": "array", "items": {
+          "type": "object", "title": "network", "display_with_list": false,
+          "properties": {
+            "name": { "type": "string", "default": "LIN?" },
+            "me": { "type": "string", "default": "AS", "description": "self node name" },
+            "timeout": { "type": "integer", "format": "dec", "default": 100, "minimum": 0, "maximum": 4294967295 },
+            "ldf": { "type": "string", "default": "", "description": "the path to a LDF file" }
+          }
+        }
+      }
+    }
+  },
+  {
+    "title": "PduR", "type": "object",
+    "properties": {
+      "routines": {
+        "type": "array", "items": {
+          "type": "object", "title": "routine",
+          "properties": {
+            "name": { "type": "string", "editable": true, "enumref": "/EcuC/Pdus:name" },
+            "from": { "type": "string", "enum": ["CanIf", "CanTp", "OsekNm", "CanNm", "PduR", "Dcm", "Com", "LinTp", "DoIP", "J1939Tp"] },
+            "to": { "type": "string", "enum": ["CanIf", "CanTp", "OsekNm", "CanNm", "PduR", "Dcm", "Com", "LinTp", "DoIP", "J1939Tp"] }
+          }
+        }
+      },
+      "networks": {
+        "type": "array", "items": {
+          "type": "object", "title": "network", "display_with_list": false,
+          "properties": {
+            "name": { "type": "string", "default": "CAN?" },
+            "network": { "type": "string", "enum": ["CAN", "LIN"]},
+            "me": { "type": "string", "default": "AS", "description": "self node name" },
+            "use_dbc": { "type": "bool", "default": false },
+            "dbc": { "type": "string", "default": "", "description": "the path to a Vector CAN DBC file", "enabled": "'${use_dbc}' == 'True'" },
+            "ignore": {
+              "type": "array", "items": {
+                "title": "Pdu", "type": "string", "default": "Xyz", "description": "the PDU ignored in the DBC file"
+              }, "enabled": "'${../use_dbc}' == 'True'"
+            }
+          }
+        }
+      },
+      "memory": {
+        "type": "array", "items": {
+          "type": "object", "title": "memory",
+          "properties": {
+            "name": { "type": "string" },
+            "size": { "type": "integer", "format": "dec", "default": 256, "minimum": 0, "maximum": 4294967295 },
+            "number": { "type": "integer", "format": "dec", "default": 2, "minimum": 0, "maximum": 4294967295 }
+          }
+        }
+      }
+    }
+  },
+  {
+    "title": "CanTp", "type": "object",
+    "properties": {
+      "UseTxConfirmation": { "type": "bool", "default": false, "description": "enable to use Tx comfirmation or not" },
+      "channels": {
+        "type": "array", "items": {
+          "type": "object", "title": "channel",
+          "properties": {
+            "name": { "type": "string" },
+            "N_As": { "type": "integer", "format": "dec", "default": 100, "minimum": 0, "maximum": 4294967295, "description": "Time for transmission of the CAN frame (any N-PDU) on the sender side" },
+            "N_Bs": { "type": "integer", "format": "dec", "default": 1000, "minimum": 0, "maximum": 4294967295, "description": "Time until reception of the next flow control N-PDU" },
+            "N_Cr": { "type": "integer", "format": "dec", "default": 1000, "minimum": 0, "maximum": 4294967295, "description": "Time until reception of the next consecutive frame N-PDU" },
+            "STmin": { "type": "integer", "format": "dec", "default": 0, "minimum": 0, "maximum": 255, "description": "Sets the duration of the minimum time the CanTp sender shall wait between the transmissions of two CF N-PDUs" },
+            "BS": { "type": "integer", "format": "dec", "default": 8, "minimum": 0, "maximum": 255, "description": "a number BS (Block Size) of consecutive frames" },
+            "WftMax": { "type": "integer", "format": "dec", "default": 8, "minimum": 0, "maximum": 255, "description": "how many Flow Control wait N-PDUs can be consecutively transmitted by the receiver" },
+            "AddressingFormat": { "type": "string", "default": "STANDARD", "enum": ["STANDARD", "EXTENDED"]},
+            "N_TA": { "type": "integer", "format": "hex", "default": 0, "minimum": 0, "maximum": 255, "enabled": "'${AddressingFormat}' == 'EXTENDED'", "description": "target address if addressing format is CANTP_EXTENDED" },
+            "LL_DL": { "type": "integer", "format": "dec", "default": 8, "minimum": 0, "maximum": 255 },
+            "padding": { "type": "integer", "format": "dec", "default": "0x55", "minimum": 0, "maximum": 255 },
+            "ComType": { "type": "string", "default": "PHYSICAL", "enum": ["PHYSICAL", "FUNCTIONAL"]}
+          }
+        }
+      }
+    }
+  },
+  {
+    "title": "J1939Tp", "type": "object",
+    "properties": {
+      "RxChannels": {
+        "type": "array", "items": {
+          "type": "object", "title": "channel",
+          "properties": {
+            "name": { "type": "string" },
+            "Protocol": { "type": "string", "default": "CMDT", "enum": ["CMDT", "BAM"] },
+            "Tr": { "type": "integer", "format": "dec", "default": 200, "minimum": 0, "maximum": 4294967295 },
+            "T1": { "type": "integer", "format": "dec", "default": 750, "minimum": 0, "maximum": 4294967295 },
+            "T2": { "type": "integer", "format": "dec", "default": 1250, "minimum": 0, "maximum": 4294967295 },
+            "T3": { "type": "integer", "format": "dec", "default": 1250, "minimum": 0, "maximum": 4294967295 },
+            "T4": { "type": "integer", "format": "dec", "default": 1050, "minimum": 0, "maximum": 4294967295 },
+            "PacketsPerBlock": { "type": "integer", "format": "dec", "default": 8, "minimum": 0, "maximum": 255 },
+            "S": { "type": "integer", "format": "dec", "default": 0, "minimum": 0, "maximum": 255, "description": "FD session" }
+          }
+        }
+      },
+      "TxChannels": {
+        "type": "array", "items": {
+          "type": "object", "title": "channel",
+          "properties": {
+            "name": { "type": "string" },
+            "Protocol": { "type": "string", "default": "CMDT", "enum": ["CMDT", "BAM"] },
+            "PgPGN": { "type": "integer", "format": "hex", "default": 0, "minimum": 0, "maximum": 4294967295, "description": "PGN of the referenced N-SDUs. " },
+            "STMin": { "type": "integer", "format": "dec", "default": 10, "minimum": 0, "maximum": 4294967295 },
+            "Tr": { "type": "integer", "format": "dec", "default": 200, "minimum": 0, "maximum": 4294967295 },
+            "T1": { "type": "integer", "format": "dec", "default": 750, "minimum": 0, "maximum": 4294967295 },
+            "T2": { "type": "integer", "format": "dec", "default": 1250, "minimum": 0, "maximum": 4294967295 },
+            "T3": { "type": "integer", "format": "dec", "default": 1250, "minimum": 0, "maximum": 4294967295 },
+            "T4": { "type": "integer", "format": "dec", "default": 1050, "minimum": 0, "maximum": 4294967295 },
+            "PacketsPerBlock": { "type": "integer", "format": "dec", "default": 8, "minimum": 0, "maximum": 255 },
+            "S": { "type": "integer", "format": "dec", "default": 0, "minimum": 0, "maximum": 255, "description": "FD session" }
+          }
+        }
+      }
+    }
+  },
+  {
+    "title": "Com", "type": "object",
+    "properties": {
+      "E2E": { "type": "string", "description": "Path to E2E configuration file" },
+      "nodes": { "type": "array", "items": { "type": "string", "title": "node" } },
+      "group_signals": { "type": "array", "items": { "type": "string", "title": "group_signal" } },
+      "networks": {
+        "type": "array", "items": {
+          "type": "object", "title": "network", "display_with_list": false,
+          "properties": {
+            "name": { "type": "string", "default": "CAN?" },
+            "network": { "type": "string", "default": "CAN", "enum": ["CAN", "CANFD", "LIN"] },
+            "device": { "type": "string", "default": "simulator_v2", "enum": ["simulator_v2", "peak", "zlg", "vxl"] },
+            "port": { "type": "integer", "default": 0, "minimum": 0, "maximum": 65535 },
+            "baudrate": { "type": "integer", "default": 500000, "minimum": 0, "maximum": 4294967295 },
+            "me": { "type": "string", "default": "AS", "editable": true, "enumref": "/Com/nodes", "description": "self node name" },
+            "use_dbc": { "type": "bool", "default": false, "enabled": "'${network}' in ['CAN', 'CANFD']" },
+            "dbc": { "type": "string", "default": "", "description": "the path to a Vector CAN DBC file", "enabled": "'${network}' in ['CAN', 'CANFD'] and '${use_dbc}' == 'True'" },
+            "use_ldf": { "type": "bool", "default": false, "enabled": "'${network}' == 'LIN'" },
+            "ldf": { "type": "string", "default": "", "description": "the path to a LDF file", "enabled": "'${network}' == 'LIN' and '${use_ldf}' == 'True'" },
+            "timeout_factor": { "type": "integer", "default": 10, "minimum": 0, "maximum": 65535 },
+            "enable_message_rx_notificaiton": { "type": "bool", "default": false },
+            "enable_signal_rx_notification": { "type": "bool", "default": false },
+            "enable_message_rx_timeout_notificaiton": { "type": "bool", "default": false },
+            "enable_signal_rx_timeout_notification": { "type": "bool", "default": false },
+            "enable_message_tx_callout": { "type": "bool", "default": false },
+            "enable_message_rx_callout": { "type": "bool", "default": false },
+            "trigger": {
+              "type": "array", "items": {
+                "title": "Pdu", "type": "string", "default": "Xyz", "description": "the PDU only to be trigger transmit"
+              }, "enabled": "'${../use_dbc}' == 'True'"
+            },
+            "E2E": {
+              "type": "array", "items": {
+                "type": "object", "title": "E2E",
+                "properties": {
+                  "name": { "type": "string", "description": "Message name" },
+                  "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"], "description": "E2E profile type" }
+                }
+              }
+            },
+            "messages": {
+              "type": "array", "items": {
+                "type": "object", "title": "message", "display_with_list": false,
+                "properties": {
+                  "name": { "type": "string", "editable": true, "enumref": "/EcuC/Pdus:name" },
+                  "id": { "type": "integer", "format": "hex", "default": 0, "minimum": 0, "maximum": 4294967295 },
+                  "dlc": { "type": "integer", "default": 8, "minimum": 0, "maximum": 255 },
+                  "node": { "type": "string", "default": "AS", "editable": true, "enumref": "/Com/nodes", "description": "node that transmit this message" },
+                  "FirstTime": { "type": "integer", "default": 0, "enabled": "'${node}' == '${../../me}'"},
+                  "CycleTime": { "type": "integer", "default": 0},
+                  "Timeout": { "type": "integer", "default": 0, "enabled": "'${node}' != '${../../me}'"},
+                  "RxNotification": { "type": "string", "default": "NULL", "enabled": "'${node}' != '${../../me}'"},
+                  "RxTOut": { "type": "string", "default": "NULL", "enabled": "'${node}' != '${../../me}'"},
+                  "TxIpduCallout": { "type": "string", "default": "NULL", "enabled": "'${node}' == '${../../me}'"},
+                  "RxIpduCallout": { "type": "string", "default": "NULL", "enabled": "'${node}' != '${../../me}'"},
+                  "signals": {
+                    "type": "array", "items": {
+                      "type": "object", "title": "signal",
+                      "properties": {
+                        "name": { "type": "string" },
+                        "start": { "type": "integer", "default": 0, "minimum": 0, "maximum": 65535 },
+                        "size": { "type": "integer", "default": 0, "minimum": 0, "maximum": 65535 },
+                        "endian": { "type": "string", "default": "big", "enum": ["big", "little"] },
+                        "sign": { "type": "string", "default": "+", "enum": ["+", "-"] },
+                        "isGroup": { "type": "bool", "default": false },
+                        "dyn": { "type": "bool", "default": false, "description": "is this a dynamic length signal, and dynamic signal must be the last signal of the message" },
+                        "group": { "type": "string", "editable": true, "enumref": "/Com/group_signals", "enabled": "'${isGroup}' == 'False'"},
+                        "InitialValue": { "type": "string", "default":"0", "description": "example: '0' for basic type, '[0, 1, 2]' for array" },
+                        "factor": { "type": "number", "default": 1 },
+                        "offset": { "type": "number", "default": 0 },
+                        "min": { "type": "number", "default": 0 },
+                        "max": { "type": "number", "default": 0 },
+                        "unit": { "type": "string", "default": "\"\"" },
+                        "node": { "type": "array", "items": { "type": "string", "title": "node" } },
+                        "RxNotification": { "type": "string", "default": "NULL", "enabled": "'${../../node}' != '${../../../../me}'"},
+                        "RxTOut": { "type": "string", "default": "NULL", "enabled": "'${../../node}' != '${../../../../me}'"},
+                        "FirstTimeout": { "type": "integer", "default": 0, "enabled": "'${../../node}' != '${../../../../me}'"},
+                        "Timeout": { "type": "integer", "default": 0, "enabled": "'${../../node}' != '${../../../../me}'"},
+                        "DataInvalidAction": { "type": "string", "default": "NOTIFY", "enum": ["NOTIFY", "REPLACE"], "enabled": "'${../../node}' != '${../../../../me}'"},
+                        "InvalidNotification": { "type": "string", "default": "NULL", "enabled": "'${../../node}' != '${../../../../me}' and '${DataInvalidAction}' == 'NOTIFY'"},
+                        "RxDataTimeoutAction": { "type": "string", "default": "NONE", "enum": ["NONE", "REPLACE", "SUBSTITUTE"], "enabled": "'${../../node}' != '${../../../../me}'"},
+                        "TimeoutSubstitutionValue": { "type": "string", "default":"0", "description": "example: '0' for basic type, '[0, 1, 2]' for array", "enabled": "'${../../node}' != '${../../../../me}' and '${RxDataTimeoutAction}' == 'SUBSTITUTE'" },
+                        "ErrorNotification": { "type": "string", "default": "NULL", "enabled": "'${../../node}' == '${../../../../me}'"},
+                        "TxNotification": { "type": "string", "default": "NULL", "enabled": "'${../../node}' == '${../../../../me}'"}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "title": "Net", "type": "object",
+    "properties": {
+      "Modules": {
+        "type": "array", "items": {
+          "type": "object", "title": "Module", "orders": ["name"], "display_with_list": false,
+          "properties": {
+            "name": { 
+              "type": "string", "map": { 
+                "DoIp": { "class": "DoIp", "extend": true },
+                "SomeIp": { "class": "SomeIp", "extend": true },
+                "SoAd": { "class": "SoAd", "extend": true }
+              },
+              "friends": ["class"]
+            },
+            "class": { "type": "hide" }
+          },
+          "extends": {
+            "DoIp":{
+              "discovery": { "type": "string", "default": "224.244.224.245:13400" },
+              "max_connections": { "type": "integer", "default": 3, "minimum": 1, "maximum": 65535 },
+              "targets": {
+                "type": "array", "items": {
+                  "type": "object", "title": "target",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "address": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                    "multi-nodes": { "type": "bool", "default": false, "description": "functional address that forward the request to multiple nodes" },
+                    "nodes": { "type": "array", "enabled": "'${../multi-nodes}' == 'True'", "items": {
+                      "type": "object", "title": "node", "properties": {
+                        "name": { "type": "string" },
+                        "address": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                        "TxId": { "type": "integer", "format": "hex", "description": "The target CAN TxId used to forward the request" }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "routines": {
+                "type": "array", "items": {
+                  "type": "object", "title": "routine",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "number": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 255 },
+                    "targets": {
+                      "type": "array", "items": { "type": "string", "title": "target", "enumref": "/Net/Modules/DoIp/targets:name" }
+                    }
+                  }
+                }
+              },
+              "testers": {
+                "type": "array", "items": {
+                  "type": "object", "title": "routine",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "address": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                    "routines": {
+                      "type": "array", "items": { "type": "string", "title": "routine", "enumref": "/Net/Modules/DoIp/routines:name" }
+                    }
+                  }
+                }
+              }
+            },
+            "SomeIp": {
+              "SD": {
+                "type": "object", "title": "SD",
+                "properties": {
+                  "hostname": { "type": "string", "default": "ssas" },
+                  "multicast": { "type": "string", "default": "224.244.224.245" }
+                }
+              },
+              "structs": {
+                "type": "array", "items": {
+                  "type": "object", "title": "struct", "display_with_list": false,
+                    "properties": {
+                      "name": { "type": "string" },
+                      "data": { "type": "array", "items": {
+                        "type": "object", "title": "data",
+                        "properties": {
+                          "name": { "type": "string" },
+                          "type": { "type": "string", "enumref": "../../../../structs:name", 
+                              "enum": ["string", "bool", "float", "double", "bool_n", "float_n", "double_n",
+                                "uint8", "uint16", "uint32", "uint64", "int8", "int16", "int32", "int64",
+                                "uint8_n", "uint16_n", "uint32_n", "uint64_n","int8_n", "int16_n", "int32_n", "int64_n"], "default": "uint32"},
+                          "variable_array": { "type": "bool", "default": false, "enabled": "'${type}' != 'string' or '${type}'[-2:] == '_n'"},
+                          "size":  { "type": "integer", "default": 1, "enabled": "'${type}'[-2:] == '_n' or '${type}' == 'string' or '${variable_array}' == 'True'" }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "args": {
+                "type": "array", "items": {
+                  "type": "object", "title": "args", "properties": {
+                    "name": { "type": "string" },
+                    "args": { "type": "array", "items": {
+                      "type": "object", "title": "arg", "properties": {
+                        "name": { "type": "string" },
+                        "type": { "type": "string", "enumref": "../../../../structs:name" }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              "servers": {
+                "type": "array", "items": {
+                  "type": "object", "title": "server", "display_with_list": false,
+                  "properties": {
+                    "name": { "type": "string" },
+                    "service": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                    "instance": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                    "clientId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                    "protocol": { "type": "string", "enum": ["UDP", "TCP"], "default": "UDP" },
+                    "unreliable": { "type": "integer", "minimum": 0, "maximum": 65535, "enabled": "'${protocol}' == 'UDP'" },
+                    "reliable": { "type": "integer", "minimum": 0, "maximum": 65535, "enabled": "'${protocol}' == 'TCP'" },
+                    "methods": { 
+                      "type": "array", "items": {
+                        "type": "object", "title": "method",
+                        "properties": {
+                          "name": { "type": "string" },
+                          "args": { "type": "string", "enumref": "../../../../args:name" },
+                          "return": { "type": "string", "editable": true, "enumref": "../../../../structs:name" },
+                          "methodId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                          "tp": { "type": "bool", "default": false },
+                          "version": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 255 },
+                          "useE2E": { "type": "bool", "default": false, "description": "Enable E2E protection for this method" },
+                          "E2E-RX": {
+                            "type": "object",
+                            "title": "E2E RX",
+                            "enabled": "'${../useE2E}' == 'True'",
+                            "properties": {
+                              "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                              "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                              "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                              "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                              "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                              "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                              "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                              "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" },
+                              "MaxDeltaCounter": { "type": "integer", "default": 1 }
+                            }
+                          },
+                          "E2E-TX": {
+                            "type": "object",
+                            "title": "E2E TX",
+                            "enabled": "'${../useE2E}' == 'True'",
+                            "properties": {
+                              "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                              "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                              "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                              "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                              "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                              "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                              "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                              "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "event-groups": { 
+                      "type": "array", "items": {
+                        "type": "object", "title": "event-group", "display_with_list": false,
+                          "properties": {
+                            "name": { "type": "string" },
+                            "groupId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                            "enable_multicast": { "type": "bool", "default": false },
+                            "multicast": { "type": "object", "title": "multicast", "enabled": "'${../enable_multicast}' == 'True'",
+                              "properties": {
+                                "threshold": { "type": "integer", "format": "dec", "default": 1, "minimum": 0, "maximum": 2 },
+                                "addr": { "type": "string", "default": "224.244.224.245:30561" }
+                              }
+                            },
+                            "events":  {
+                              "type": "array", "items": {
+                                "type": "object", "title": "event",
+                                "properties": {
+                                  "name": { "type": "string" },
+                                  "type": { "type": "string", "editable": true, "enumref": "../../../../../../structs:name" },
+                                  "eventId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                                  "tp": { "type": "bool", "default": false },
+                                  "version": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 255 },
+                                  "useE2E": { "type": "bool", "default": false, "description": "Enable E2E protection for this event" },
+                                  "E2E-TX": {
+                                    "type": "object",
+                                    "title": "E2E TX",
+                                    "enabled": "'${../useE2E}' == 'True'",
+                                    "properties": {
+                                      "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                                      "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                      "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                                      "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                                      "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                                      "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                                      "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                      "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" }
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "fields": {
+                      "type": "array", "items": {
+                        "type": "object", "title": "field",
+                        "properties": {
+                          "name": { "type": "string" },
+                          "type": { "type": "string", "editable": true, "enumref": "../../../../structs:name" },
+                          "get": {
+                            "type": "object", "title": "get",
+                            "properties": {
+                              "methodId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                              "useE2E": { "type": "bool", "default": false, "description": "Enable E2E protection for this operation" },
+                              "E2E-RX": {
+                                "type": "object",
+                                "title": "E2E RX",
+                                "enabled": "'${../useE2E}' == 'True'",
+                                "properties": {
+                                  "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                                  "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                                  "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                                  "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                                  "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                                  "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" },
+                                  "MaxDeltaCounter": { "type": "integer", "default": 1 }
+                                }
+                              },
+                              "E2E-TX": {
+                                "type": "object",
+                                "title": "E2E TX",
+                                "enabled": "'${../useE2E}' == 'True'",
+                                "properties": {
+                                  "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                                  "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                                  "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                                  "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                                  "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                                  "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" }
+                                }
+                              }
+                            }
+                          },
+                          "set": {
+                            "type": "object", "title": "set",
+                            "properties": {
+                              "methodId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                              "useE2E": { "type": "bool", "default": false, "description": "Enable E2E protection for this operation" },
+                              "E2E-RX": {
+                                "type": "object",
+                                "title": "E2E RX",
+                                "enabled": "'${../useE2E}' == 'True'",
+                                "properties": {
+                                  "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                                  "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                                  "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                                  "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                                  "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                                  "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" },
+                                  "MaxDeltaCounter": { "type": "integer", "default": 1 }
+                                }
+                              },
+                              "E2E-TX": {
+                                "type": "object",
+                                "title": "E2E TX",
+                                "enabled": "'${../useE2E}' == 'True'",
+                                "properties": {
+                                  "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                                  "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                                  "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                                  "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                                  "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                                  "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" }
+                                }
+                              }
+                            }
+                          },
+                          "event": {
+                            "type": "object", "title": "event",
+                            "properties": {
+                              "groupName": { "type": "string" },
+                              "groupId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                              "group_enable_multicast": { "type": "bool", "default": false },
+                              "multicast": { "type": "object", "title": "multicast", "enabled": "'${../group_enable_multicast}' == 'True'",
+                                "properties": {
+                                  "threshold": { "type": "integer", "format": "dec", "default": 1, "minimum": 0, "maximum": 2 },
+                                  "addr": { "type": "string", "default": "224.244.224.245:30561" }
+                                }
+                              },
+                              "eventId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                              "useE2E": { "type": "bool", "default": false, "description": "Enable E2E protection for this event" },
+                              "E2E-RX": {
+                                "type": "object",
+                                "title": "E2E RX",
+                                "enabled": "'${../useE2E}' == 'True'",
+                                "properties": {
+                                  "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                                  "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                                  "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                                  "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                                  "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                                  "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" },
+                                  "MaxDeltaCounter": { "type": "integer", "default": 1 }
+                                }
+                              }
+                            }
+                          },
+                          "tp": { "type": "bool", "default": false },
+                          "version": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 255 }
+                        }
+                      }
+                    }
+                  }
+              },
+              "clients": {
+                "type": "array", "items": {
+                  "type": "object", "title": "client", "display_with_list": false,
+                  "properties": {
+                    "name": { "type": "string" },
+                    "service": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                    "instance": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                    "clientId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                    "protocol": { "type": "string", "enum": ["UDP", "TCP"], "default": "UDP" },
+                    "unreliable": { "type": "integer", "minimum": 0, "maximum": 65535, "enabled": "'${protocol}' == 'UDP'" },
+                    "reliable": { "type": "integer", "minimum": 0, "maximum": 65535, "enabled": "'${protocol}' == 'TCP'" },
+                    "methods": {
+                      "type": "array", "items": {
+                        "type": "object", "title": "method",
+                        "properties": {
+                          "name": { "type": "string" },
+                          "args": { "type": "string", "enumref": "../../../../args:name" },
+                          "return": { "type": "string", "editable": true, "enumref": "../../../../structs:name" },
+                          "methodId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                          "tp": { "type": "bool", "default": false },
+                          "version": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 255 },
+                          "useE2E": { "type": "bool", "default": false, "description": "Enable E2E protection for this method" },
+                          "E2E-RX": {
+                            "type": "object",
+                            "title": "E2E RX",
+                            "enabled": "'${../useE2E}' == 'True'",
+                            "properties": {
+                              "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                              "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                              "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                              "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                              "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                              "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                              "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                              "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" },
+                              "MaxDeltaCounter": { "type": "integer", "default": 1 }
+                            }
+                          },
+                          "E2E-TX": {
+                            "type": "object",
+                            "title": "E2E TX",
+                            "enabled": "'${../useE2E}' == 'True'",
+                            "properties": {
+                              "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                              "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                              "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                              "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                              "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                              "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                              "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                              "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "event-groups": {
+                      "type": "array", "items": {
+                        "type": "object", "title": "event-group", "display_with_list": false,
+                          "properties": {
+                            "name": { "type": "string" },
+                            "groupId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                            "enable_multicast": { "type": "bool", "default": false },
+                            "multicast": { "type": "object", "title": "multicast", "enabled": "'${../enable_multicast}' == 'True'",
+                              "properties": {
+                                "threshold": { "type": "integer", "format": "dec", "default": 1, "minimum": 0, "maximum": 2 },
+                                "addr": { "type": "string", "default": "224.244.224.245:30561" }
+                              }
+                            },
+                            "events":  { "type": "array", "items": {
+                              "type": "object", "title": "event",
+                              "properties": {
+                                "name": { "type": "string" },
+                                "type": { "type": "string", "editable": true, "enumref": "../../../../../../structs:name" },
+                                "eventId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                                "tp": { "type": "bool", "default": true },
+                                "version": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 255 },
+                                "useE2E": { "type": "bool", "default": false, "description": "Enable E2E protection for this event" },
+                                "E2E-RX": {
+                                  "type": "object",
+                                  "title": "E2E RX",
+                                  "enabled": "'${../useE2E}' == 'True'",
+                                  "properties": {
+                                    "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                                    "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                    "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                                    "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                                    "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                                    "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                                    "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                    "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" },
+                                    "MaxDeltaCounter": { "type": "integer", "default": 1 }
+                                  }
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "fields": {
+                      "type": "array", "items": {
+                        "type": "object", "title": "field",
+                        "properties": {
+                          "name": { "type": "string" },
+                          "type": { "type": "string", "editable": true, "enumref": "../../../../structs:name" },
+                          "get": {
+                            "type": "object", "title": "get",
+                            "properties": {
+                              "methodId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                              "useE2E": { "type": "bool", "default": false, "description": "Enable E2E protection for this operation" },
+                              "E2E-RX": {
+                                "type": "object",
+                                "title": "E2E RX",
+                                "enabled": "'${../useE2E}' == 'True'",
+                                "properties": {
+                                  "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                                  "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                                  "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                                  "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                                  "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                                  "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" },
+                                  "MaxDeltaCounter": { "type": "integer", "default": 1 }
+                                }
+                              },
+                              "E2E-TX": {
+                                "type": "object",
+                                "title": "E2E TX",
+                                "enabled": "'${../useE2E}' == 'True'",
+                                "properties": {
+                                  "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                                  "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                                  "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                                  "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                                  "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                                  "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" }
+                                }
+                              }
+                            }
+                          },
+                          "set": {
+                            "type": "object", "title": "set",
+                            "properties": {
+                              "methodId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                              "useE2E": { "type": "bool", "default": false, "description": "Enable E2E protection for this operation" },
+                              "E2E-RX": {
+                                "type": "object",
+                                "title": "E2E RX",
+                                "enabled": "'${../useE2E}' == 'True'",
+                                "properties": {
+                                  "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                                  "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                                  "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                                  "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                                  "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                                  "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" },
+                                  "MaxDeltaCounter": { "type": "integer", "default": 1 }
+                                }
+                              },
+                              "E2E-TX": {
+                                "type": "object",
+                                "title": "E2E TX",
+                                "enabled": "'${../useE2E}' == 'True'",
+                                "properties": {
+                                  "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                                  "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                                  "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                                  "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                                  "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                                  "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" }
+                                }
+                              }
+                            }
+                          },
+                          "event": {
+                            "type": "object", "title": "event",
+                            "properties": {
+                              "groupName": { "type": "string" },
+                              "groupId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                              "group_enable_multicast": { "type": "bool", "default": false },
+                              "multicast": { "type": "object", "title": "multicast", "enabled": "'${../group_enable_multicast}' == 'True'",
+                                "properties": {
+                                  "threshold": { "type": "integer", "format": "dec", "default": 1, "minimum": 0, "maximum": 2 },
+                                  "addr": { "type": "string", "default": "224.244.224.245:30561" }
+                                }
+                              },
+                              "eventId": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 65535 },
+                              "useE2E": { "type": "bool", "default": false, "description": "Enable E2E protection for this event" },
+                              "E2E-RX": {
+                                "type": "object",
+                                "title": "E2E RX",
+                                "enabled": "'${../useE2E}' == 'True'",
+                                "properties": {
+                                  "profile": { "type": "string", "enum": ["P11", "P22", "P44", "P05"] },
+                                  "DataID": { "type": "integer", "format": "hex", "enabled": "'${profile}' == 'P11' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE", "enabled": "'${profile}' == 'P11'" },
+                                  "CRCOffset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P11'" },
+                                  "CounterOffset": { "type": "integer", "default": 8, "enabled": "'${profile}' == 'P11'" },
+                                  "DataIDNibbleOffset": { "type": "integer", "default": 12, "enabled": "'${profile}' == 'P11'" },
+                                  "Offset": { "type": "integer", "default": 0, "enabled": "'${profile}' == 'P22' or '${profile}' == 'P44' or '${profile}' == 'P05'" },
+                                  "DataIDList": { "type": "string", "enabled": "'${profile}' == 'P22'" },
+                                  "MaxDeltaCounter": { "type": "integer", "default": 1 }
+                                }
+                              }
+                            }
+                          },
+                          "tp": { "type": "bool", "default": false },
+                          "version": { "type": "integer", "format": "hex", "minimum": 0, "maximum": 255 }
+                        }
+                      }
+                    }
+                }
+              }
+              }
+            },
+            "SoAd": {
+              "sockets": {
+                "type": "array", "items": {
+                  "type": "object", "title": "socket",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "type": { "type": "string", "enum": ["server", "client"], "default": "server" },
+                    "server": { "type": "string", "default": "ip:port", "enabled": "'${type}' == 'server'" },
+                    "client": { "type": "string", "default": "ip:port", "enabled": "'${type}' == 'client'" },
+                    "protocol": { "type": "string", "enum": ["UDP", "TCP"], "default": "UDP" },
+                    "multicast": { "type": "bool", "default": false, "enabled": "'${protocol}' == 'UDP'" },
+                    "listen": { "type": "integer", "default": 3, "enabled": "'${protocol}' == 'TCP' and '${type}' == 'server'" },
+                    "up": { "type": "string", "enum": ["DoIP", "SD", "SOMEIP", "UdpNm", "User"] },
+                    "RxPduId": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "title" : "E2E", "type": "object",
+    "properties": {
+      "UsePostBuildConfig": { "type": "bool", "default": false },
+      "ProtectP11": {
+        "type": "array", "items": {
+          "type": "object", "title": "ProtectP11",
+          "properties": {
+            "name": { "type": "string" },
+            "DataID": { "type": "integer", "format": "hex" },
+            "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE" },
+            "CRCOffset": { "type": "integer", "default": 0 },
+            "CounterOffset": { "type": "integer", "default": 8 },
+            "DataIDNibbleOffset": { "type": "integer", "default": 12 }
+          }
+        }
+      },
+      "ProtectP22": {
+        "type": "array", "items": {
+          "type": "object", "title": "ProtectP22",
+          "properties": {
+            "name": { "type": "string" },
+            "DataIDList": { "type": "string" },
+            "Offset": { "type": "integer", "default": 0 }
+          }
+        }
+      },
+      "ProtectP44": {
+        "type": "array", "items": {
+          "type": "object", "title": "ProtectP44",
+          "properties": {
+            "name": { "type": "string" },
+            "DataID": { "type": "integer", "format": "hex" },
+            "Offset": { "type": "integer", "default": 0 }
+          }
+        }
+      },
+      "ProtectP05": {
+        "type": "array", "items": {
+          "type": "object", "title": "ProtectP05",
+          "properties": {
+            "name": { "type": "string" },
+            "DataID": { "type": "integer", "format": "hex" },
+            "Offset": { "type": "integer", "default": 0 }
+          }
+        }
+      },
+      "CheckP11": {
+        "type": "array", "items": {
+          "type": "object", "title": "CheckP11",
+          "properties": {
+            "name": { "type": "string" },
+            "DataID": { "type": "integer", "format": "hex" },
+            "DataIDMode": { "type": "string", "enum": ["BOTH", "NIBBLE", "ALT", "LOW"], "default": "NIBBLE" },
+            "CRCOffset": { "type": "integer", "default": 0 },
+            "CounterOffset": { "type": "integer", "default": 8 },
+            "DataIDNibbleOffset": { "type": "integer", "default": 12 },
+            "MaxDeltaCounter": { "type": "integer", "default": 1 }
+          }
+        }
+      },
+      "CheckP22": {
+        "type": "array", "items": {
+          "type": "object", "title": "CheckP22",
+          "properties": {
+            "name": { "type": "string" },
+            "DataIDList": { "type": "string" },
+            "Offset": { "type": "integer", "default": 0 },
+            "MaxDeltaCounter": { "type": "integer", "default": 1 }
+          }
+        }
+      },
+      "CheckP44": {
+        "type": "array", "items": {
+          "type": "object", "title": "CheckP44",
+          "properties": {
+            "name": { "type": "string" },
+            "DataID": { "type": "integer", "format": "hex" },
+            "Offset": { "type": "integer", "default": 0 },
+            "MaxDeltaCounter": { "type": "integer", "default": 1 }
+          }
+        }
+      },
+      "CheckP05": {
+        "type": "array", "items": {
+          "type": "object", "title": "CheckP05",
+          "properties": {
+            "name": { "type": "string" },
+            "DataID": { "type": "integer", "format": "hex" },
+            "Offset": { "type": "integer", "default": 0 },
+            "MaxDeltaCounter": { "type": "integer", "default": 1 }
+          }
+        }
+      }
+    }
+  },
+  {
+    "title" : "BL", "type": "object",
+    "properties": {
+      "general": {
+        "type": "object", "title": "general",
+        "properties": {
+          "BL_USE_BL_IN_APP": { "type": "bool", "default": false, "description": "use BL in application" },
+          "BL_USE_AB": { "type": "bool", "default": false },
+          "BL_USE_AB_UPDATE_ACTIVE": { "type": "bool", "default": false },
+          "BL_USE_CRC_16": { "type": "bool", "default": true, "enabled": "'${BL_USE_CRC_32}' == 'False'" },
+          "BL_USE_CRC_32": { "type": "bool", "default": false, "enabled": "'${BL_USE_CRC_16}' == 'False'" },
+          "FL_USE_WRITE_WINDOW_BUFFER": { "type": "bool", "default": false },
+          "FLASH_ERASE_SIZE": { "type": "integer", "minimum": 1, "default": 512 },
+          "FLASH_WRITE_SIZE": { "type": "integer", "minimum": 1, "default": 8 },
+          "FLASH_READ_SIZE": { "type": "integer", "minimum": 1, "default": 1 },
+          "FL_ERASE_PER_CYCLE": { "type": "integer", "minimum": 1, "default": 1 },
+          "FL_WRITE_PER_CYCLE": { "type": "integer", "minimum": 1, "default": 256 },
+          "FL_READ_PER_CYCLE": { "type": "integer", "minimum": 1, "default": 4096 },
+          "FL_ERASE_RCRRP_CYCLE": { "type": "integer", "minimum": 1, "default": 32 },
+          "FL_WRITE_RCRRP_CYCLE": { "type": "integer", "minimum": 1, "default": 1024 },
+          "BL_USE_APP_INFO": { "type": "bool", "default": false },
+          "BL_USE_APP_INFO_V2": { "type": "bool", "default": false },
+          "CAN_DIAG_P2P_RX": { "type": "integer", "default": "0x731" },
+          "CAN_DIAG_P2P_TX": { "type": "integer", "default": "0x732" },
+          "CAN_DIAG_P2A_RX": { "type": "integer", "default": "0x7df" },
+          "DCM_DISABLE_PROGRAM_SESSION_PROTECTION": { "type": "bool", "default": false },
+          "BL_USE_BUILTIN_FLS_READ": { "type": "bool", "default": false },
+          "BL_USE_FLS_READ": { "type": "bool", "default": false },
+          "BL_USE_META": { "type": "bool", "default": false },
+          "BL_USE_AB_ACTIVE_BASED_ON_META_ROLLING_COUNTER": { "type": "bool", "default": false, "enabled": "'${BL_USE_META}' == 'True' and '${BL_USE_AB}' == 'True'" },
+          "ENABLE_META_SIZE_CONFIG": { "type": "bool", "enabled": "'${BL_USE_META}' == 'True'", "default": false },
+          "FINGER_PRINT_SIZE": { "type": "integer", "enabled": "'${ENABLE_META_SIZE_CONFIG}' == 'True'" },
+          "META_SIZE": { "type": "integer", "enabled": "'${ENABLE_META_SIZE_CONFIG}' == 'True'" },
+          "APP_SECTION_INFO_SIZE": { "type": "integer", "enabled": "'${ENABLE_META_SIZE_CONFIG}' == 'True'" },
+          "APP_VALID_FLAG_SIZE": { "type": "integer", "enabled": "'${ENABLE_META_SIZE_CONFIG}' == 'True'" },
+          "ROD_OFFSET": { "type": "integer", "default": 0 }
+        }
+      },
+      "memory": {
+        "type": "object",
+        "properties": {
+          "FlashDriver": {
+            "type": "object", "properties": {
+              "address": { "type": "integer", "default": 0 },
+              "size": { "type": "integer", "default": 0 }
+            }
+          },
+          "FlashA": {
+            "type": "array", "items": {
+              "type": "object", "title": "bank",
+              "properties": {
+                "address": { "type": "integer", "default": 0 },
+                "size": { "type": "integer", "default": 0 },
+                "sectorSize": { "type": "integer", "default": 512 }
+              }
+            }
+          },
+          "FlashB": {
+            "type": "array", "items": {
+              "type": "object", "title": "bank",
+              "properties": {
+                "address": { "type": "integer", "default": 0 },
+                "size": { "type": "integer", "default": 0 },
+                "sectorSize": { "type": "integer", "default": 512 }
+              }
+            }
+          },
+          "Fee": {
+            "type": "array", "items": {
+              "type": "object", "title": "bank",
+              "properties": {
+                "address": { "type": "integer", "default": 0 },
+                "size": { "type": "integer", "default": 0 }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+]

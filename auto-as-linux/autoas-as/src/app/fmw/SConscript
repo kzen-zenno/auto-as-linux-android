@@ -1,0 +1,62 @@
+from building import *
+
+for sc in Glob("*/SConscript"):
+    SConscript(sc)
+
+CWD = GetCurrentDir()
+
+objsApp = Glob("*.c") + Glob("src/*.c")
+
+libsForFmwApp = {
+    "Com": Glob("config/Com/Com.json"),
+    "PduR": Glob("config/Com/PduR.json"),
+    "CanIf": Glob("config/Com/CanIf.json"),
+}
+
+
+@register_application
+class ApplicationFmwApp(Application):
+    def platform_config(self):
+        self.Append(CPPDEFINES=["USE_STD_DEBUG"])
+        self.LIBS.append("Simulator")
+        # shell gives the generic Com lssg/wrsg commands (list/write Rx+Tx signal values on
+        # demand) so routine per-frame ASLOG(FMW, ...) prints aren't needed for introspection.
+        self.Append(CPPDEFINES=["USE_SHELL"])
+        self.LIBS.append("Shell")
+
+    def config(self):
+        self.CPPDEFINES = []
+        self.CPPPATH = [
+            "$INFRAS",
+            "%s/include" % (CWD),
+            CWD,
+            "$Com_Cfg",
+            "$EcuM_Cfg",
+            "%s/config/SomeIp/GEN" % (CWD),
+        ]
+        self.LIBS = ["StdTimer", "EcuM"]
+        for libName, source in libsForFmwApp.items():
+            self.LIBS.append(libName)
+            self.RegisterConfig(libName, source)
+            self.Append(CPPDEFINES=["USE_%s" % (libName.split(":")[0].upper())])
+        source = self.Generate(
+            ["%s/config/SomeIp/Network.json" % (CWD), "%s/config/SomeIp/Mempool.json" % (CWD)]
+        )
+        libsForSomeIp = {
+            "SoAd": source["SoAd"] + source["MemCluster"],
+            "Sd": source["Sd"],
+            "SomeIp": source["SomeIp"] + source["VehicleStateSkeletonC"],
+            "SomeIpXf": source["SomeIpXf"],
+        }
+        for libName, src in libsForSomeIp.items():
+            self.LIBS.append(libName)
+            self.RegisterConfig(libName, src)
+            self.Append(CPPDEFINES=["USE_%s" % (libName.split(":")[0].upper())])
+        # "Simulator" (added below by platform_config()) already provides
+        # Std_EnterCritical/ExitCritical; do not also link "Critical" or the
+        # link fails with a duplicate symbol.
+        self.LIBS += ["TcpIp"]
+        self.Append(CPPDEFINES=["USE_TCPIP"])
+        self.source = objsApp
+        self.Append(CPPDEFINES=["USE_CAN"])
+        self.platform_config()

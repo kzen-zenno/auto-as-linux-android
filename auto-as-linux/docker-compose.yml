@@ -1,0 +1,133 @@
+# Moved here from automotive_linux/vehicle_service/docker-compose.yml so the
+# stack can include metapp (repo-root component) alongside the
+# automotive_linux services. `name:` is pinned to the old directory-derived
+# project name ("vehicle_service") so the `kuksa-net` network, cache volumes,
+# and every `--network vehicle_service_kuksa-net` example already documented
+# in automotive_linux/README.md / autoas-as/README.md keep working unchanged.
+name: vehicle_service
+
+version: "3.9"
+
+services:
+
+  databroker:
+    build:
+      context: ./automotive_linux/vehicle_service/databroker
+    container_name: databroker
+    environment:
+      KUKSA_DATABROKER_ADDR: 0.0.0.0
+    ports:
+      - "55555:55555"
+    restart: unless-stopped
+    networks:
+      - kuksa-net
+
+  # Learning-platform mock Gateway ECU (SWARCH-002), the original simulator
+  # this stack was built against. Kept as an explicit opt-in alternative to
+  # "gateway-ecu" below (both claim 172.30.0.12): `docker compose --profile
+  # mock up vehicle-state-server` instead of the real Gateway ECU. It still
+  # speaks the original variable-length LKV TLV (SYS-002 §5.2 pre-migration);
+  # vehicle-state-provider auto-detects neither -- pick one, not both, per
+  # the wire format each side is currently built for (see
+  # autoas-as/src/app/fmw/README.md §7.5 / SWARCH-000-R-005).
+  vehicle-state-server:
+    profiles: ["mock"]
+    build:
+      context: ./automotive_linux/vehicle_service/vehicle-state-server
+    container_name: vehicle-state-server
+    networks:
+      kuksa-net:
+        ipv4_address: 172.30.0.12
+    environment:
+      VSOMEIP_CONFIGURATION: /app/config/vsomeip.json
+      VSOMEIP_APPLICATION_NAME: vehicle_state_server
+    volumes:
+      - ./automotive_linux/vehicle_service/workspace/kuksa-someip-provider:/app/src
+      - vehiclestate-build-cache:/app/build
+      - vehiclestate-conan-cache:/root/.conan
+    restart: unless-stopped
+
+  # Real (non-simulator) AUTOSAR-CP Gateway ECU: autoas-as/src/app/fmw
+  # (FmwApp) + webcan, built from the sibling autoas-as repo. Speaks the
+  # fixed-length LKV schema (SYS-002 §5.2 migration note); the
+  # vehicle_state library's fixed_lkv_codec.{h,cc} is what lets
+  # vehicle-state-provider decode it (SWARCH-000-R-005). Reuses
+  # vehicle-state-server's 172.30.0.12/30512 so
+  # provider-vehicle-state/config/vsomeip.json's remote service entry did
+  # not need to change.
+  gateway-ecu:
+    build:
+      context: ./autoas-as
+      dockerfile: docker/Dockerfile
+    container_name: gateway-ecu
+    networks:
+      kuksa-net:
+        ipv4_address: 172.30.0.12
+    environment:
+      AS_LOCAL_IP: 172.30.0.12
+      FMWAPP_LOG_LEVEL: 1
+    volumes:
+      - ./autoas-as/src:/workspace
+    ports:
+      - "8800:8800"  # webcan UI (CAN signal monitor/injector, see its README)
+    command: ["run-fmw-gateway.sh"]
+    restart: unless-stopped
+
+  vehicle-state-provider:
+    build:
+      context: ./automotive_linux/vehicle_service/provider-vehicle-state
+    container_name: vehicle-state-provider
+    depends_on:
+      - databroker
+      - gateway-ecu
+    networks:
+      kuksa-net:
+        ipv4_address: 172.30.0.13
+    environment:
+      VSOMEIP_CONFIGURATION: /app/config/vsomeip.json
+      VSOMEIP_APPLICATION_NAME: vehicle_state_provider
+      BROKER_ADDR: databroker:55555
+    volumes:
+      - ./automotive_linux/vehicle_service/workspace/kuksa-someip-provider:/app/src
+      - vehiclestateprovider-build-cache:/app/build
+      - vehiclestateprovider-conan-cache:/root/.conan
+    restart: unless-stopped
+
+  # metapp: PyQt instrument-cluster client (metapp/README.md). A plain KUKSA
+  # VAL gRPC client, not a SOME/IP participant, so it needs no fixed IP on
+  # kuksa-net. Renders into its own Xvfb virtual display, exposed both as
+  # raw VNC (5900, for a native VNC client) and, via websockify+noVNC, as a
+  # plain browser page (6080) -- neither needs the Docker host's own X
+  # server or Xauthority coordination. Both bound to 127.0.0.1 only: view
+  # with `ssh -L 6080:localhost:6080 <this-host>` then open
+  # http://localhost:6080/vnc.html in a browser (or -L 5900:localhost:5900
+  # for a native VNC client) -- see metapp/README.md §8.2. `restart` is
+  # intentionally left at the "no" default -- a crashed GUI should not
+  # respawn in a loop.
+  metapp:
+    build:
+      context: ./metapp
+    container_name: metapp
+    depends_on:
+      - databroker
+    networks:
+      - kuksa-net
+    environment:
+      METAPP_BROKER_ADDR: databroker:55555
+      QT_X11_NO_MITSHM: 1
+    ports:
+      - "127.0.0.1:5900:5900"
+      - "127.0.0.1:6080:6080"
+
+networks:
+  kuksa-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  vehiclestate-build-cache:
+  vehiclestate-conan-cache:
+  vehiclestateprovider-build-cache:
+  vehiclestateprovider-conan-cache:

@@ -1,0 +1,39 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Build artifacts
+auto-as-linux/build/
+auto-as-linux/target/
+*.o
+*.a
+*.so
+*.dll
+*.pyc
+__pycache__/
+
+# Logs
+*.log
+*.log.*
+
+# Downloaded/generated third-party sources
+auto-as-linux/download/
+
+# Local environment files
+.env
+*.pem
+id_rsa
+id_rsa.pub
+
+# Host-specific, regenerate via README "1) Create .env"
+aaos16/.env
+
+# AOSP source tree (repo sync'd, ~290GB), ccache, and any build/run
+# artifacts placed under workspace/ (cuttlefish instance state, etc.)
+aaos16/workspace/
+

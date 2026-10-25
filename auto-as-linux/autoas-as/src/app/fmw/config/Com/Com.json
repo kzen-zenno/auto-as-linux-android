@@ -1,0 +1,18 @@
+{
+  "class": "Com",
+  "networks": [
+    {
+      "name": "CAN0",
+      "network": "CAN",
+      "device": "simulator_v2",
+      "port": 0,
+      "baudrate": 500000,
+      "me": "AS",
+      "use_dbc": true,
+      "dbc": "CAN0.dbc",
+      "timeout_factor": 3,
+      "enable_message_rx_notificaiton": true,
+      "enable_message_rx_timeout_notificaiton": true
+    }
+  ]
+}

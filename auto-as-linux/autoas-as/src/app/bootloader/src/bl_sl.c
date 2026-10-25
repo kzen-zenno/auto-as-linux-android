@@ -1,0 +1,147 @@
+/**
+ * SSAS - Simple Smart Automotive Software
+ * Copyright (C) 2021 Parai Wang <parai@foxmail.com>
+ */
+/* ================================ [ INCLUDES  ] ============================================== */
+#include "bl.h"
+/* ================================ [ MACROS    ] ============================================== */
+#define BL_SECURITY_LEVEL_EXTDS DCM_SEC_LEVEL1
+
+#ifndef BL_TIME_TO_RESET
+#define BL_TIME_TO_RESET 5 /* ticks */
+#endif
+/* ================================ [ TYPES     ] ============================================== */
+/* ================================ [ DECLARES  ] ============================================== */
+/* ================================ [ DATAS     ] ============================================== */
+static uint32_t bl_prgs_seed = 0xdeadbeef;
+static uint32_t bl_extds_seed = 0xbeafdada;
+static uint8_t bl_timeToReset = 0;
+/* ================================ [ LOCALS    ] ============================================== */
+/* ================================ [ FUNCTIONS ] ============================================== */
+Std_ReturnType BL_GetSessionChangePermission(Dcm_SesCtrlType sesCtrlTypeActive,
+                                             Dcm_SesCtrlType sesCtrlTypeNew,
+                                             Dcm_NegativeResponseCodeType *nrc) {
+  Std_ReturnType ercd = E_OK;
+  ASLOG(BL, ("BL_GetSessionChangePermission(%d --> %d)\n", (int)sesCtrlTypeActive,
+             (int)sesCtrlTypeNew));
+
+#ifndef DCM_DISABLE_PROGRAM_SESSION_PROTECTION
+  /* program session can only be entered through EXTDS session */
+  if ((DCM_PROGRAMMING_SESSION == sesCtrlTypeNew) &&
+      (DCM_EXTENDED_DIAGNOSTIC_SESSION != sesCtrlTypeActive)) {
+    *nrc = DCM_E_REQUEST_SEQUENCE_ERROR;
+    ercd = E_NOT_OK;
+  }
+  if ((DCM_PROGRAMMING_SESSION == sesCtrlTypeNew) &&
+      (DCM_EXTENDED_DIAGNOSTIC_SESSION == sesCtrlTypeActive)) {
+    Dcm_SecLevelType level = DCM_SEC_LEV_LOCKED;
+    (void)Dcm_GetSecurityLevel(&level);
+
+    if (BL_SECURITY_LEVEL_EXTDS != level) {
+      *nrc = DCM_E_SECUTITY_ACCESS_DENIED;
+      ercd = E_NOT_OK;
+    }
+  }
+#endif
+  return ercd;
+}
+
+Std_ReturnType BL_GetProgramLevelSeed(uint8_t *seed, Dcm_NegativeResponseCodeType *errorCode) {
+  uint32_t u32Seed; /* intentional not initialized to use the stack random value */
+  uint32_t u32Time = Std_GetTime();
+
+  bl_prgs_seed = bl_prgs_seed ^ u32Seed ^ u32Time ^ 0xfeedbeef;
+
+  ASLOG(BL, ("BL_GetProgramLevelSeed(seed = %X)\n", bl_prgs_seed));
+
+  seed[0] = (uint8_t)(bl_prgs_seed >> 24);
+  seed[1] = (uint8_t)(bl_prgs_seed >> 16);
+  seed[2] = (uint8_t)(bl_prgs_seed >> 8);
+  seed[3] = (uint8_t)(bl_prgs_seed);
+  return E_OK;
+}
+
+Std_ReturnType BL_CompareProgramLevelKey(uint8_t *key, Dcm_NegativeResponseCodeType *errorCode) {
+  Std_ReturnType ercd;
+  uint32_t u32Key = ((uint32_t)key[0] << 24) + ((uint32_t)key[1] << 16) + ((uint32_t)key[2] << 8) +
+                    ((uint32_t)key[3]);
+  uint32_t u32KeyExpected = bl_prgs_seed ^ 0x94586792;
+
+  ASLOG(BL, ("BL_CompareProgramLevelKey(key = %X(%X))\n", u32Key, u32KeyExpected));
+
+  if (u32KeyExpected == u32Key) {
+    ercd = E_OK;
+  } else {
+    *errorCode = DCM_E_INVALID_KEY;
+    ercd = E_NOT_OK;
+  }
+  return ercd;
+}
+
+Std_ReturnType BL_GetExtendedLevelSeed(uint8_t *seed, Dcm_NegativeResponseCodeType *errorCode) {
+  uint32_t u32Seed; /* intentional not initialized to use the stack random value */
+  uint32_t u32Time = Std_GetTime();
+
+  bl_extds_seed = bl_extds_seed ^ u32Seed ^ u32Time ^ 0x95774321;
+
+  ASLOG(BL, ("BL_GetExtendedLevelSeed(seed = %X)\n", bl_extds_seed));
+
+  seed[0] = (uint8_t)(bl_extds_seed >> 24);
+  seed[1] = (uint8_t)(bl_extds_seed >> 16);
+  seed[2] = (uint8_t)(bl_extds_seed >> 8);
+  seed[3] = (uint8_t)(bl_extds_seed);
+
+  return E_OK;
+}
+
+Std_ReturnType BL_CompareExtendedLevelKey(uint8_t *key, Dcm_NegativeResponseCodeType *errorCode) {
+  Std_ReturnType ercd;
+  uint32_t u32Key = ((uint32_t)key[0] << 24) + ((uint32_t)key[1] << 16) + ((uint32_t)key[2] << 8) +
+                    ((uint32_t)key[3]);
+  uint32_t u32KeyExpected = bl_extds_seed ^ 0x78934673;
+
+  ASLOG(BL, ("BL_CompareExtendedLevelKey(key = %X(%X))\n", u32Key, u32KeyExpected));
+
+  if (u32KeyExpected == u32Key) {
+    ercd = E_OK;
+  } else {
+    *errorCode = DCM_E_INVALID_KEY;
+    ercd = E_NOT_OK;
+  }
+  return ercd;
+}
+
+void BL_RequestReset(void) {
+  bl_timeToReset = BL_TIME_TO_RESET;
+}
+
+#ifndef BL_USE_BL_IN_APP
+void Dcm_SessionChangeIndication(Dcm_SesCtrlType sesCtrlTypeActive, Dcm_SesCtrlType sesCtrlTypeNew,
+                                 boolean timeout) {
+  BL_SessionReset();
+  if (TRUE == timeout) {
+    if ((DCM_EXTENDED_DIAGNOSTIC_SESSION == sesCtrlTypeActive) ||
+        (DCM_PROGRAMMING_SESSION == sesCtrlTypeActive)) {
+      Dcm_PerformReset(DCM_WARM_START);
+    }
+  } else if ((DCM_PROGRAMMING_SESSION == sesCtrlTypeActive) &&
+             (DCM_DEFAULT_SESSION == sesCtrlTypeNew)) {
+    BL_RequestReset();
+  } else {
+  }
+}
+#endif
+
+Std_ReturnType BL_GetEcuResetPermission(Dcm_OpStatusType OpStatus,
+                                        Dcm_NegativeResponseCodeType *ErrorCode) {
+  return E_OK;
+}
+
+void BL_MainFunction(void) {
+  if (bl_timeToReset > 0) {
+    bl_timeToReset--;
+    if (0 == bl_timeToReset) {
+      Dcm_PerformReset(DCM_WARM_START);
+    }
+  }
+}

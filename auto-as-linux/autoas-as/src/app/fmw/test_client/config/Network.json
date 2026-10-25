@@ -1,0 +1,93 @@
+{
+  "_comment": "Test-only client counterpart of ../config/SomeIp/Network.json (autoas-as/src/app/fmw/README.md section 8 step 8 test tool). Not part of the production Gateway ECU image.",
+  "class": "Net",
+  "Modules": [
+    {
+      "name": "SomeIp",
+      "class": "SomeIp",
+      "SD": {
+        "hostname": "fmw-test-client",
+        "multicast": "224.244.224.245"
+      },
+      "structs": [
+        {
+          "name": "LkvEntry",
+          "data": [
+            { "name": "keyId", "type": "uint16" },
+            { "name": "quality", "type": "uint8" },
+            { "name": "confidence", "type": "uint8" },
+            { "name": "timestampMs", "type": "uint64" },
+            { "name": "ageMs", "type": "uint32" },
+            { "name": "value", "type": "float" }
+          ]
+        },
+        {
+          "name": "VehicleStateMessage",
+          "data": [
+            { "name": "schemaVersion", "type": "uint16" },
+            { "name": "entries", "type": "LkvEntry", "variable_array": true, "size": 16 }
+          ]
+        },
+        {
+          "name": "WriteRequest",
+          "data": [
+            { "name": "entries", "type": "LkvEntry", "variable_array": true, "size": 5 }
+          ]
+        },
+        {
+          "name": "WriteResponse",
+          "data": [
+            { "name": "resultCode", "type": "uint8" },
+            { "name": "failedEntryIndex", "type": "uint8" },
+            { "name": "entries", "type": "LkvEntry", "variable_array": true, "size": 5 }
+          ]
+        }
+      ],
+      "args": [
+        { "name": "write-args", "args": [ { "name": "request", "type": "WriteRequest" } ] }
+      ],
+      "clients": [
+        {
+          "name": "VehicleState",
+          "service": "0x1770",
+          "instance": "0x0001",
+          "clientId": "0x1771",
+          "protocol": "TCP",
+          "_comment_major": "Must stay identical to ../config/SomeIp/Network.json's server entry (README section 10.2): Sd.c drops an OFFER whose major version differs from the client service's configured MajorVersion (\"major version not matched\").",
+          "major": "0x01",
+          "minor": "0x00000000",
+          "methods": [
+            {
+              "name": "GetVehicleStateSnapshot",
+              "methodId": "0x0001",
+              "return": "VehicleStateMessage",
+              "version": "1"
+            },
+            {
+              "name": "WriteVehicleState",
+              "methodId": "0x0002",
+              "args": "write-args",
+              "return": "WriteResponse",
+              "version": "1"
+            }
+          ],
+          "event-groups": [
+            {
+              "name": "EventGroupVehicleState",
+              "groupId": "0x0001",
+              "enable_multicast": false,
+              "events": [
+                {
+                  "name": "EvVehicleState",
+                  "eventId": "0x8001",
+                  "type": "VehicleStateMessage",
+                  "version": "1"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,134 @@
+VERSION "SYS-001 FMW CAN signal spec (draft v3)"
+
+
+NS_ :
+    NS_DESC_
+    CM_
+    BA_DEF_
+    BA_
+    VAL_
+    CAT_DEF_
+    CAT_
+    FILTER
+    BA_DEF_DEF_
+    EV_DATA_
+    ENVVAR_DATA_
+    SGTYPE_
+    SGTYPE_VAL_
+    BA_DEF_SGTYPE_
+    BA_SGTYPE_
+    SIG_TYPE_REF_
+    VAL_TABLE_
+    SIG_GROUP_
+    SIG_VALTYPE_
+    SIGTYPE_VALTYPE_
+    BO_TX_BU_
+    BA_DEF_REL_
+    BA_REL_
+    BA_DEF_DEF_REL_
+    BU_SG_REL_
+    BU_EV_REL_
+    BU_BO_REL_
+    SG_MUL_VAL_
+
+BS_:
+
+BU_: AS FMW_VCU FMW_HVAC
+
+BO_ 0x120 Speed: 8 FMW_VCU
+ SG_ VehicleSpeedRaw : 0|16@1+ (0.01,0) [0|655.34] "km/h" AS
+
+BO_ 0x121 TacoMeter: 8 FMW_VCU
+ SG_ EngineSpeedRaw : 0|16@1+ (0.25,0) [0|8000] "rpm" AS
+
+BO_ 0x323 Aircon: 8 FMW_VCU
+ SG_ AC_OnOff : 0|1@1+ (1,0) [0|1] "" AS
+ SG_ Defrost : 1|1@1+ (1,0) [0|1] "" AS
+ SG_ Mode : 2|3@1+ (1,0) [0|7] "" AS
+ SG_ AirconReserved0 : 5|3@1+ (1,0) [0|7] "" AS
+ SG_ FanLevel : 8|8@1+ (1,0) [0|7] "" AS
+ SG_ TargetTempRaw : 16|8@1+ (0.5,16) [16|30] "degC" AS
+
+BO_ 0x526 AirconCommand: 8 AS
+ SG_ MM_AC_Cmd : 0|1@1+ (1,0) [0|1] "" FMW_HVAC
+ SG_ MM_Temp_Cmd : 1|1@1+ (1,0) [0|1] "" FMW_HVAC
+ SG_ MM_Fan_Cmd : 2|1@1+ (1,0) [0|1] "" FMW_HVAC
+ SG_ MM_Def_Cmd : 3|1@1+ (1,0) [0|1] "" FMW_HVAC
+ SG_ AirconCommandReserved0 : 4|4@1+ (1,0) [0|15] "" FMW_HVAC
+ SG_ CmdFanLevel : 8|8@1+ (1,0) [0|7] "" FMW_HVAC
+ SG_ CmdTargetTempRaw : 16|8@1+ (0.5,16) [16|30] "degC" FMW_HVAC
+ SG_ CmdAC_OnOff : 24|1@1+ (1,0) [0|1] "" FMW_HVAC
+ SG_ CmdDefrost : 25|1@1+ (1,0) [0|1] "" FMW_HVAC
+ SG_ CmdMode : 26|3@1+ (1,0) [0|7] "" FMW_HVAC
+ SG_ AirconCommandReserved1 : 29|3@1+ (1,0) [0|7] "" FMW_HVAC
+
+BO_ 0x224 Reverse: 8 FMW_VCU
+ SG_ ReverseState : 0|1@1+ (1,0) [0|1] "" AS
+ SG_ ReverseReserved0 : 1|7@1+ (1,0) [0|127] "" AS
+
+BO_ 0x225 ParkingBrake: 8 FMW_VCU
+ SG_ ParkingBrakeState : 0|1@1+ (1,0) [0|1] "" AS
+ SG_ AutoHoldActive : 1|1@1+ (1,0) [0|1] "" AS
+ SG_ ParkingBrakeReserved0 : 2|6@1+ (1,0) [0|63] "" AS
+
+BO_ 0x226 ESC: 8 FMW_VCU
+ SG_ ESC_IsError : 0|1@1+ (1,0) [0|1] "" AS
+ SG_ ESCReserved0 : 1|7@1+ (1,0) [0|127] "" AS
+
+BO_ 0x227 ABS: 8 FMW_VCU
+ SG_ ABS_IsError : 0|1@1+ (1,0) [0|1] "" AS
+ SG_ ABSReserved0 : 1|7@1+ (1,0) [0|127] "" AS
+
+BO_ 0x228 Seatbelt: 8 FMW_VCU
+ SG_ Row1DriverIsBelted : 0|1@1+ (1,0) [0|1] "" AS
+ SG_ Row1PassengerIsBelted : 1|1@1+ (1,0) [0|1] "" AS
+ SG_ Row2DriverIsBelted : 2|1@1+ (1,0) [0|1] "" AS
+ SG_ Row2PassengerIsBelted : 3|1@1+ (1,0) [0|1] "" AS
+ SG_ SeatbeltReserved0 : 4|4@1+ (1,0) [0|15] "" AS
+
+BO_ 0x229 DoorOpen: 8 FMW_VCU
+ SG_ Row1DriverIsOpen : 0|1@1+ (1,0) [0|1] "" AS
+ SG_ Row1PassengerIsOpen : 1|1@1+ (1,0) [0|1] "" AS
+ SG_ Row2DriverIsOpen : 2|1@1+ (1,0) [0|1] "" AS
+ SG_ Row2PassengerIsOpen : 3|1@1+ (1,0) [0|1] "" AS
+ SG_ DoorOpenReserved0 : 4|4@1+ (1,0) [0|15] "" AS
+
+BO_ 0x22A Airbag: 8 FMW_VCU
+ SG_ Row1DriverAirbagDeployed : 0|1@1+ (1,0) [0|1] "" AS
+ SG_ Row1PassengerAirbagDeployed : 1|1@1+ (1,0) [0|1] "" AS
+ SG_ Row2DriverAirbagDeployed : 2|1@1+ (1,0) [0|1] "" AS
+ SG_ Row2PassengerAirbagDeployed : 3|1@1+ (1,0) [0|1] "" AS
+ SG_ AirbagReserved0 : 4|4@1+ (1,0) [0|15] "" AS
+
+BO_ 0x22B LowFuel: 8 FMW_VCU
+ SG_ FuelRelativeLevel : 0|8@1+ (1,0) [0|100] "%" AS
+
+
+BA_DEF_ BO_ "GenMsgCycleTime" INT 0 100000;
+BA_DEF_DEF_ "GenMsgCycleTime" 0;
+
+BA_ "GenMsgCycleTime" BO_ 0x120 100;
+BA_ "GenMsgCycleTime" BO_ 0x121 50;
+BA_ "GenMsgCycleTime" BO_ 0x323 100;
+BA_ "GenMsgCycleTime" BO_ 0x526 100;
+BA_ "GenMsgCycleTime" BO_ 0x224 50;
+BA_ "GenMsgCycleTime" BO_ 0x225 100;
+BA_ "GenMsgCycleTime" BO_ 0x226 100;
+BA_ "GenMsgCycleTime" BO_ 0x227 100;
+BA_ "GenMsgCycleTime" BO_ 0x228 100;
+BA_ "GenMsgCycleTime" BO_ 0x229 100;
+BA_ "GenMsgCycleTime" BO_ 0x22A 100;
+BA_ "GenMsgCycleTime" BO_ 0x22B 500;
+
+CM_ BO_ 0x120 "Vehicle speed. Invalid=0xFFFF raw. Timeout 300ms -> Stale, physical value capped at 255.00 km/h.";
+CM_ BO_ 0x121 "Engine speed. Invalid=0xFFFF raw. Timeout 150ms -> Stale.";
+CM_ BO_ 0x323 "Aircon status. Timeout 300ms -> Stale (grey out).";
+CM_ BO_ 0x526 "Aircon command, transmitted by this node (Multimedia/MM) to FMW_HVAC, cycle 100ms.";
+CM_ BO_ 0x224 "Reverse gear state. Timeout 150ms -> Unknown, reverse-linked features disabled fail-safe.";
+CM_ BO_ 0x225 "Parking brake state. Timeout 300ms -> Unknown, launch inhibit defaults to Applied (fail-safe).";
+CM_ BO_ 0x226 "ESC error flag. Timeout 300ms -> Unknown, fail-safe warning ON.";
+CM_ BO_ 0x227 "ABS error flag. Timeout 300ms -> Unknown, fail-safe warning ON.";
+CM_ BO_ 0x228 "Seatbelt state per seat. Timeout 300ms -> Unknown.";
+CM_ BO_ 0x229 "Door open state per door. Timeout 300ms -> Unknown.";
+CM_ BO_ 0x22A "Airbag deployed state per seat. Timeout 300ms -> Unknown, fail-safe warning ON.";
+CM_ BO_ 0x22B "Relative fuel level, 0xFF=Invalid. Timeout 1500ms -> Stale.";

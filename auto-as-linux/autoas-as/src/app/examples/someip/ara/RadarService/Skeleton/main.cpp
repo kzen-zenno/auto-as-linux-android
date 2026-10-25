@@ -1,0 +1,172 @@
+/**
+ * SSAS - Simple Smart Automotive Software
+ * Copyright (C) 2021-2024 Parai Wang <parai@foxmail.com>
+ */
+/* ================================ [ INCLUDES  ] ============================================== */
+#ifdef USE_SOMEIP
+#include "RadarServiceSkeleton.hpp"
+#else
+#include "RadarServiceSkeletonV.hpp"
+#endif
+
+#include <string.h>
+#include "TcpIp.h"
+#include "SoAd.h"
+#include "Sd.h"
+#include "SomeIp.h"
+#include "SomeIpXf.h"
+#include "E2E.h"
+
+#include "Sd_Cfg.h"
+#include "SomeIp_Cfg.h"
+#include "SomeIpXf_Cfg.h"
+
+#include "Std_Timer.h"
+
+#include "Std_Debug.h"
+
+#include <thread>
+#include <chrono>
+
+using namespace ara::com::RadarService;
+using namespace ara::com::RadarService::events;
+/* ================================ [ MACROS    ] ============================================== */
+#define AS_LOG_RADAR 1
+/* ================================ [ TYPES     ] ============================================== */
+class RadarServiceImpl : public RadarServiceSkeleton {
+public:
+  RadarServiceImpl(ara::com::InstanceIdentifier instanceId) : RadarServiceSkeleton(instanceId) {
+  }
+
+  ~RadarServiceImpl() {
+  }
+
+  void Init() {
+  }
+
+public:
+  Future<AdjustOutput> Adjust(const Position &position) {
+    ara::core::Promise<AdjustOutput> promise;
+    auto future = promise.get_future();
+#if 0
+    promise.set_value(doAdjustInternal(position));
+#else
+    // asynchronous call to internal adjust function in a new Thread
+    std::thread th(
+      [this](const Position &pos, ara::core::Promise<AdjustOutput> prom) {
+        prom.set_value(doAdjustInternal(pos));
+      },
+      std::cref(position), std::move(promise));
+    th.detach();
+#endif
+    // we return a future, which might be set or not at this point...
+    return future;
+  }
+
+private:
+  AdjustOutput doAdjustInternal(const Position &position) {
+    AdjustOutput out;
+
+    out.success = true;
+    out.effective_position = position;
+    ASLOG(RADAR, ("Adjust to position (%u, %u, %u)\n", position.x, position.y, position.z));
+
+    return out;
+  }
+};
+/* ================================ [ DECLARES  ] ============================================== */
+/* ================================ [ DATAS     ] ============================================== */
+static Std_TimerType timer10ms;
+static Std_TimerType timer1s;
+static std::thread radarServiceThread;
+/* ================================ [ LOCALS    ] ============================================== */
+static void BrakeEventHandler(RadarServiceImpl &myRadarService) {
+  static uint8_t num = 1;
+  Result<SampleAllocateePtr<BrakeEvent::SampleType>> rslt = myRadarService.BrakeEvent.Allocate();
+  if (true == rslt.HasValue()) {
+    SampleAllocateePtr<BrakeEvent::SampleType> curSamplePtr = std::move(rslt.Value());
+    curSamplePtr->active = true;
+    curSamplePtr->objectsLen = num;
+    for (uint32_t i = 0; i < num; i++) {
+      curSamplePtr->objects[i].x = num + 1;
+      curSamplePtr->objects[i].y = num + 2;
+      curSamplePtr->objects[i].z = num + 3;
+    }
+    ASLOG(RADAR, ("sending %u radar objects\n", num));
+    myRadarService.BrakeEvent.Send(std::move(curSamplePtr));
+    num++;
+    if (num > 32) {
+      num = 1;
+    }
+  }
+}
+
+static void RadarServiceMain(void) {
+  uint16_t instanceId = SOMEIP_SSID_RADAR_SERVICE;
+  fields::UpdateRate::FieldType updateRate = 0;
+  ara::core::StringView instanceIdStr((char *)&instanceId, 2);
+  RadarServiceImpl *myRadarServicePtr = new RadarServiceImpl(InstanceIdentifier(instanceIdStr));
+  RadarServiceImpl &myRadarService = *myRadarServicePtr;
+
+  myRadarService.Init();
+
+  myRadarService.UpdateRate.RegisterGetHandler([&updateRate]() {
+    ara::core::Promise<fields::UpdateRate::FieldType> prom;
+    prom.set_value(++updateRate);
+    return prom.get_future();
+  });
+
+  myRadarService.UpdateRate.RegisterSetHandler(
+    [&updateRate](const fields::UpdateRate::FieldType &data) {
+      ara::core::Promise<fields::UpdateRate::FieldType> prom;
+      updateRate = data;
+      prom.set_value(updateRate);
+      return prom.get_future();
+    });
+
+  while (true) {
+    myRadarService.OfferService();
+    while (ara::com::SubscriptionState::kSubscribed ==
+           myRadarService.BrakeEvent.GetSubscriptionState()) {
+      BrakeEventHandler(myRadarService);
+      myRadarService.UpdateRate.Update(++updateRate);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+    ASLOG(RADAR, ("No subscription\n"));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  }
+}
+
+/* ================================ [ FUNCTIONS ] ============================================== */
+int main(int argc, char *argv[]) {
+#ifdef USE_SOMEIP
+  TcpIp_Init(NULL);
+  SoAd_Init(NULL);
+  Sd_Init(NULL);
+  SomeIp_Init(NULL);
+  E2E_Init(NULL);
+#endif
+  Std_TimerStart(&timer10ms);
+  Std_TimerStart(&timer1s);
+
+  radarServiceThread = std::thread(RadarServiceMain);
+
+  for (;;) {
+    if (Std_GetTimerElapsedTime(&timer10ms) >= 10000) {
+      Std_TimerStart(&timer10ms);
+#ifdef USE_SOMEIP
+      TcpIp_MainFunction();
+      SoAd_MainFunction();
+      Sd_MainFunction();
+      SomeIp_MainFunction();
+#endif
+    }
+
+    if (Std_GetTimerElapsedTime(&timer1s) >= 1000000) {
+      Std_TimerStart(&timer1s);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  return 0;
+}

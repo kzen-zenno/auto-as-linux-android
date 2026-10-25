@@ -1,0 +1,52 @@
+from building import *
+
+CWD = GetCurrentDir()
+
+# generate(Glob('config/*/*.json'))
+
+objsCanPub = Glob("can_publisher.c")
+
+
+@register_application
+class ApplicationCanPubEx(Application):
+    def config(self):
+        source = self.Generate(["%s/config/pub/Network.json" % (CWD), "%s/config/pub/Mempool.json" % (CWD)])
+        libsForCanPub = {
+            "SoAd": source["SoAd"] + source["MemCluster"],
+            "Sd": source["Sd"],
+            "SomeIp": source["SomeIp"] + source["CANBusSkeletonC"],
+            "SomeIpXf": source["SomeIpXf"],
+            "E2E": source["E2E"],
+        }
+        self.CPPPATH = ["$INFRAS", "%s/config/pub/GEN" % (CWD)]
+        self.source = objsCanPub
+        self.LIBS = ["TcpIp", "StdTimer", "Critical"]
+        self.Append(CPPDEFINES=["USE_TCPIP"])
+        for libName, source in libsForCanPub.items():
+            self.LIBS.append(libName)
+            self.RegisterConfig(libName, source)
+            self.Append(CPPDEFINES=["USE_%s" % (libName.split(":")[0].upper())])
+
+
+objsCanSub = Glob("can_subscriber.c")
+
+
+@register_application
+class ApplicationCanSubEx(Application):
+    def config(self):
+        source = self.Generate(["%s/config/sub/Network.json" % (CWD), "%s/config/sub/Mempool.json" % (CWD)])
+        libsForCanSub = {
+            "SoAd": source["SoAd"] + source["MemCluster"],
+            "Sd": source["Sd"],
+            "SomeIp": source["SomeIp"] + source["CANBusProxyC"],
+            "SomeIpXf": source["SomeIpXf"],
+            "E2E": source["E2E"],
+        }
+        self.CPPPATH = ["$INFRAS", "%s/config/sub/GEN" % (CWD)]
+        self.source = objsCanSub
+        self.LIBS = ["TcpIp", "StdTimer", "Critical"]
+        self.Append(CPPDEFINES=["USE_TCPIP"])
+        for libName, source in libsForCanSub.items():
+            self.LIBS.append(libName)
+            self.RegisterConfig(libName, source)
+            self.Append(CPPDEFINES=["USE_%s" % (libName.split(":")[0].upper())])

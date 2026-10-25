@@ -1,0 +1,29 @@
+{
+  "class": "CanIf",
+  "RxPacketPoolSize": 8,
+  "RxPacketDataSize": 64,
+  "TxPacketPoolSize": 8,
+  "TxPacketDataSize": 64,
+  "networks": [
+    {
+      "name": "CAN0",
+      "me": "AS",
+      "RxPdus": [
+        { "name": "CAN0_SPEED_RX", "id": "0x120", "hoh": 0, "up": "PduR" },
+        { "name": "CAN0_TACO_METER_RX", "id": "0x121", "hoh": 0, "up": "PduR" },
+        { "name": "CAN0_AIRCON_RX", "id": "0x323", "hoh": 0, "up": "PduR" },
+        { "name": "CAN0_REVERSE_RX", "id": "0x224", "hoh": 0, "up": "PduR" },
+        { "name": "CAN0_PARKING_BRAKE_RX", "id": "0x225", "hoh": 0, "up": "PduR" },
+        { "name": "CAN0_ESC_RX", "id": "0x226", "hoh": 0, "up": "PduR" },
+        { "name": "CAN0_ABS_RX", "id": "0x227", "hoh": 0, "up": "PduR" },
+        { "name": "CAN0_SEATBELT_RX", "id": "0x228", "hoh": 0, "up": "PduR" },
+        { "name": "CAN0_DOOR_OPEN_RX", "id": "0x229", "hoh": 0, "up": "PduR" },
+        { "name": "CAN0_AIRBAG_RX", "id": "0x22A", "hoh": 0, "up": "PduR" },
+        { "name": "CAN0_LOW_FUEL_RX", "id": "0x22B", "hoh": 0, "up": "PduR" }
+      ],
+      "TxPdus": [
+        { "name": "CAN0_AIRCON_COMMAND_TX", "id": "0x526", "hoh": 0, "up": "PduR" }
+      ]
+    }
+  ]
+}

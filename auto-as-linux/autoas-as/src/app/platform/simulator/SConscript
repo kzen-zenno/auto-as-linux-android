@@ -1,0 +1,61 @@
+from building import *
+
+objs = Glob("src/*.c") + Glob("src/*.cpp")
+
+libsForSimulator = {
+    "Can": Glob("src/config/Can_Cfg.c"),
+    "Lin:as": Glob("src/config/Lin_Cfg.c"),
+    "Dio": Glob("src/config/Dio*.c"),
+    "Port": Glob("src/config/Port*.c"),
+}
+
+
+@register_library
+class LibrarySimulator(Library):
+    object = True
+    def config(self):
+        self.LIBS = ["CanLib", "DevLib", "Utils"]
+        self.Append(CPPDEFINES=["LIN_USE_EXT_ID"])
+        self.CPPPATH = ["$INFRAS", "$StdTrace_Cfg", "#RingBuffer", "$LinIf_Cfg"]
+        self.source = objs
+        if GetOption("library") in ["AsOne", "AsPy"]:
+            SrcRemove(self.source, ["Key.cpp"])
+        for libName, cfg in libsForSimulator.items():
+            self.LIBS += [libName]
+            self.RegisterConfig(libName, cfg)
+            self.CPPPATH += ["$%s_Cfg" % (libName)]
+            self.Append(CPPDEFINES=["USE_%s" % (libName.split(":")[0].upper())])
+        if IsBuildForMSVC():
+            self.LIBS += ["User32"]
+
+
+objsFlsAc = Glob("src/FlsAc.cpp") + Glob("src/critical.cpp")
+
+
+@register_library
+class LibraryFlsAc(Library):
+    def config(self):
+        self.CPPPATH = ["$INFRAS"]
+        self.CPPDEFINES = ["USE_FLS"]
+        self.LIBS = ["Utils"]
+        self.source = objsFlsAc
+
+@register_library
+class LibraryFlsAcRam(Library):
+    shared = True
+    def config(self):
+        self.CPPPATH = ["$INFRAS"]
+        self.CPPDEFINES = ["USE_FLS", "FLS_AC_RAM_ONLY", "USE_STD_PRINTF"]
+        self.LIBS = ["Utils"]
+        self.source = objsFlsAc
+        self.Install("../one")
+
+
+objsCritical = Glob("src/critical.cpp")
+
+
+@register_library
+class LibraryCritical(Library):
+    def config(self):
+        self.CPPPATH = ["$INFRAS"]
+        self.source = objsCritical
